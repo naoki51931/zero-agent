@@ -5,6 +5,10 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -18,7 +22,18 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Build debug APK
         run: gradle :app:assembleDebug
+      - name: Rename APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk zero-agent-debug.apk
       - uses: actions/upload-artifact@v4
         with:
           name: zero-agent-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: zero-agent-debug.apk
+      - name: Publish rolling release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git tag -f latest-build
+          git push origin refs/tags/latest-build --force
+          gh release view latest-build >/dev/null 2>&1 || gh release create latest-build --title "Zero Agent Latest Build" --notes "Latest debug APK built from main."
+          gh release upload latest-build zero-agent-debug.apk --clobber
