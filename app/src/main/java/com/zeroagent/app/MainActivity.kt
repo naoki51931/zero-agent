@@ -28,24 +28,22 @@ fun ZeroAgentApp(wallet: WalletManager) {
     val scope = rememberCoroutineScope()
     val openRouter = remember { OpenRouterClient() }
     val modelOptions = listOf(
-        "openai/gpt-5.6-sol-pro",
-        "openai/gpt-5.6-sol",
-        "openai/gpt-5.6-terra-pro",
-        "openai/gpt-5.6-terra",
-        "openai/gpt-5.6-luna-pro",
-        "openai/gpt-5.6-luna",
         "openai/gpt-5.4",
+        "openai/gpt-5.4-pro",
+        "openai/gpt-5.3-chat",
+        "openai/gpt-5.2",
+        "openai/gpt-5.2-pro",
         "openrouter/auto",
-        "google/gemini-2.5-pro",
-        "anthropic/claude-sonnet-4.5",
-        "deepseek/deepseek-chat-v3.1",
         "CUSTOM"
     )
+    val reasoningOptions = listOf("low", "medium", "high")
     var status by remember { mutableStateOf("READY") }
     var mode by remember { mutableStateOf("HYBRID") }
     var apiKey by remember { mutableStateOf("") }
-    var model by remember { mutableStateOf("openai/gpt-5.6-sol") }
+    var model by remember { mutableStateOf("openai/gpt-5.4") }
     var modelMenuExpanded by remember { mutableStateOf(false) }
+    var reasoning by remember { mutableStateOf("high") }
+    var reasoningMenuExpanded by remember { mutableStateOf(false) }
     var customModel by remember { mutableStateOf("") }
     var objective by remember { mutableStateOf("オリジナルコンテンツを企画し、必要な制作物と配布先を決め、各サービスで実行可能な行動計画を作る") }
     var result by remember { mutableStateOf("") }
@@ -90,29 +88,19 @@ fun ZeroAgentApp(wallet: WalletManager) {
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                ExposedDropdownMenuBox(
-                    expanded = modelMenuExpanded,
-                    onExpandedChange = { modelMenuExpanded = !modelMenuExpanded }
-                ) {
+                ExposedDropdownMenuBox(expanded = modelMenuExpanded, onExpandedChange = { modelMenuExpanded = !modelMenuExpanded }) {
                     OutlinedTextField(
                         value = if (model == "CUSTOM") "カスタムモデル" else model,
-                        onValueChange = {},
-                        readOnly = true,
+                        onValueChange = {}, readOnly = true,
                         label = { Text("OpenRouterモデル") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelMenuExpanded) },
                         modifier = Modifier.menuAnchor().fillMaxWidth()
                     )
-                    ExposedDropdownMenu(
-                        expanded = modelMenuExpanded,
-                        onDismissRequest = { modelMenuExpanded = false }
-                    ) {
+                    ExposedDropdownMenu(expanded = modelMenuExpanded, onDismissRequest = { modelMenuExpanded = false }) {
                         modelOptions.forEach { option ->
                             DropdownMenuItem(
                                 text = { Text(if (option == "CUSTOM") "その他（モデルIDを入力）" else option) },
-                                onClick = {
-                                    model = option
-                                    modelMenuExpanded = false
-                                }
+                                onClick = { model = option; modelMenuExpanded = false }
                             )
                         }
                     }
@@ -120,16 +108,30 @@ fun ZeroAgentApp(wallet: WalletManager) {
 
                 if (model == "CUSTOM") {
                     OutlinedTextField(
-                        value = customModel,
-                        onValueChange = { customModel = it },
+                        value = customModel, onValueChange = { customModel = it },
                         label = { Text("OpenRouter Model ID") },
                         supportingText = { Text("例: provider/model-name") },
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
 
+                ExposedDropdownMenuBox(expanded = reasoningMenuExpanded, onExpandedChange = { reasoningMenuExpanded = !reasoningMenuExpanded }) {
+                    OutlinedTextField(
+                        value = reasoning, onValueChange = {}, readOnly = true,
+                        label = { Text("思考レベル") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = reasoningMenuExpanded) },
+                        modifier = Modifier.menuAnchor().fillMaxWidth()
+                    )
+                    ExposedDropdownMenu(expanded = reasoningMenuExpanded, onDismissRequest = { reasoningMenuExpanded = false }) {
+                        reasoningOptions.forEach { option ->
+                            DropdownMenuItem(text = { Text(option) }, onClick = { reasoning = option; reasoningMenuExpanded = false })
+                        }
+                    }
+                }
+
                 val selectedModel = if (model == "CUSTOM") customModel.trim() else model
-                Text("使用モデル: ${selectedModel.ifBlank { "未入力" }}")
+                Text("使用モデル: ${selectedModel.ifBlank { "未入力" }} / reasoning: $reasoning")
+                Text("企画理解を重視する場合は GPT-5.4 + high を推奨")
 
                 OutlinedTextField(value = objective, onValueChange = { objective = it }, label = { Text("目的") }, modifier = Modifier.fillMaxWidth())
 
@@ -141,7 +143,7 @@ fun ZeroAgentApp(wallet: WalletManager) {
                             status = "PLANNING"
                             result = ""
                             try {
-                                result = openRouter.createPlan(apiKey, selectedModel, objective)
+                                result = openRouter.createPlan(apiKey, selectedModel, objective, reasoning)
                                 status = "PLAN READY"
                             } catch (e: Exception) {
                                 result = e.message ?: "エラー"
