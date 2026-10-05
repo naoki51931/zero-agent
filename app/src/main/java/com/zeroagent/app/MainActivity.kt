@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.zeroagent.app.openrouter.OpenRouterClient
+import com.zeroagent.app.openrouter.OpenRouterModel
 import com.zeroagent.app.wallet.WalletManager
 import kotlinx.coroutines.launch
 
@@ -27,35 +28,35 @@ class MainActivity : ComponentActivity() {
 fun ZeroAgentApp(wallet: WalletManager) {
     val scope = rememberCoroutineScope()
     val openRouter = remember { OpenRouterClient() }
-    val modelOptions = listOf(
-        "openai/gpt-5.4",
-        "openai/gpt-5.4-pro",
-        "openai/gpt-5.3-chat",
-        "openai/gpt-5.2",
-        "openai/gpt-5.2-pro",
-        "openrouter/auto",
-        "CUSTOM"
-    )
+    val providers = listOf("OpenAI", "Gemini", "Claude", "Grok", "その他")
     val reasoningOptions = listOf("low", "medium", "high")
     var status by remember { mutableStateOf("READY") }
     var mode by remember { mutableStateOf("HYBRID") }
     var apiKey by remember { mutableStateOf("") }
-    var model by remember { mutableStateOf("openai/gpt-5.4") }
-    var modelMenuExpanded by remember { mutableStateOf(false) }
+    var provider by remember { mutableStateOf("OpenAI") }
+    var providerMenu by remember { mutableStateOf(false) }
+    var models by remember { mutableStateOf<List<OpenRouterModel>>(emptyList()) }
+    var model by remember { mutableStateOf("") }
+    var modelMenu by remember { mutableStateOf(false) }
     var reasoning by remember { mutableStateOf("high") }
-    var reasoningMenuExpanded by remember { mutableStateOf(false) }
-    var customModel by remember { mutableStateOf("") }
+    var reasoningMenu by remember { mutableStateOf(false) }
     var objective by remember { mutableStateOf("オリジナルコンテンツを企画し、必要な制作物と配布先を決め、各サービスで実行可能な行動計画を作る") }
     var result by remember { mutableStateOf("") }
     var address by remember { mutableStateOf(wallet.getReceiveAddress() ?: "未作成") }
     var balance by remember { mutableLongStateOf(wallet.getBalanceSats()) }
 
+    fun matchesProvider(id: String): Boolean = when (provider) {
+        "OpenAI" -> id.startsWith("openai/")
+        "Gemini" -> id.startsWith("google/") && id.contains("gemini", true)
+        "Claude" -> id.startsWith("anthropic/") && id.contains("claude", true)
+        "Grok" -> id.startsWith("x-ai/") && id.contains("grok", true)
+        else -> true
+    }
+    val filteredModels = models.filter { matchesProvider(it.id) }
+
     MaterialTheme {
         Scaffold { padding ->
-            Column(
-                Modifier.padding(padding).padding(20.dp).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
+            Column(Modifier.padding(padding).padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("ZERO AGENT", style = MaterialTheme.typography.headlineLarge)
                 Text("Creator Agent: $status")
                 Text("操作モード: $mode")
@@ -64,100 +65,47 @@ fun ZeroAgentApp(wallet: WalletManager) {
                     Button(onClick = { mode = "HUMAN"; status = "HUMAN CONTROL" }) { Text("人間") }
                     Button(onClick = { mode = "HYBRID"; status = "READY" }) { Text("HYBRID") }
                 }
-
                 HorizontalDivider()
                 Text("Bitcoin TESTNET", style = MaterialTheme.typography.titleLarge)
                 Text("残高: $balance sats")
                 Text("受取: $address")
-                if (!wallet.hasWallet()) {
-                    Button(onClick = {
-                        wallet.createWallet()
-                        address = wallet.getReceiveAddress() ?: "生成エラー"
-                        balance = wallet.getBalanceSats()
-                    }) { Text("Testnetウォレットを作成") }
-                }
+                if (!wallet.hasWallet()) Button(onClick = { wallet.createWallet(); address = wallet.getReceiveAddress() ?: "生成エラー"; balance = wallet.getBalanceSats() }) { Text("Testnetウォレットを作成") }
                 Text("※ Testnet専用。実BTCは送らないでください。")
-
                 HorizontalDivider()
-                Text("OpenRouter", style = MaterialTheme.typography.titleLarge)
-                OutlinedTextField(
-                    value = apiKey,
-                    onValueChange = { apiKey = it },
-                    label = { Text("API Key（この画面では保存しません）") },
-                    visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Text("OpenRouter AI", style = MaterialTheme.typography.titleLarge)
+                OutlinedTextField(value = apiKey, onValueChange = { apiKey = it }, label = { Text("API Key") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+                Button(enabled = apiKey.isNotBlank() && status != "MODELS LOADING", onClick = {
+                    scope.launch {
+                        status = "MODELS LOADING"
+                        try { models = openRouter.fetchModels(apiKey); status = "READY" } catch (e: Exception) { result = e.message ?: "モデル取得エラー"; status = "FAILED" }
+                    }
+                }, modifier = Modifier.fillMaxWidth()) { Text("最新モデル一覧を取得") }
 
-                ExposedDropdownMenuBox(expanded = modelMenuExpanded, onExpandedChange = { modelMenuExpanded = !modelMenuExpanded }) {
-                    OutlinedTextField(
-                        value = if (model == "CUSTOM") "カスタムモデル" else model,
-                        onValueChange = {}, readOnly = true,
-                        label = { Text("OpenRouterモデル") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelMenuExpanded) },
-                        modifier = Modifier.menuAnchor().fillMaxWidth()
-                    )
-                    ExposedDropdownMenu(expanded = modelMenuExpanded, onDismissRequest = { modelMenuExpanded = false }) {
-                        modelOptions.forEach { option ->
-                            DropdownMenuItem(
-                                text = { Text(if (option == "CUSTOM") "その他（モデルIDを入力）" else option) },
-                                onClick = { model = option; modelMenuExpanded = false }
-                            )
-                        }
+                ExposedDropdownMenuBox(expanded = providerMenu, onExpandedChange = { providerMenu = !providerMenu }) {
+                    OutlinedTextField(value = provider, onValueChange = {}, readOnly = true, label = { Text("AI系統") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(providerMenu) }, modifier = Modifier.menuAnchor().fillMaxWidth())
+                    ExposedDropdownMenu(expanded = providerMenu, onDismissRequest = { providerMenu = false }) {
+                        providers.forEach { p -> DropdownMenuItem(text = { Text(p) }, onClick = { provider = p; model = ""; providerMenu = false }) }
                     }
                 }
 
-                if (model == "CUSTOM") {
-                    OutlinedTextField(
-                        value = customModel, onValueChange = { customModel = it },
-                        label = { Text("OpenRouter Model ID") },
-                        supportingText = { Text("例: provider/model-name") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-
-                ExposedDropdownMenuBox(expanded = reasoningMenuExpanded, onExpandedChange = { reasoningMenuExpanded = !reasoningMenuExpanded }) {
-                    OutlinedTextField(
-                        value = reasoning, onValueChange = {}, readOnly = true,
-                        label = { Text("思考レベル") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = reasoningMenuExpanded) },
-                        modifier = Modifier.menuAnchor().fillMaxWidth()
-                    )
-                    ExposedDropdownMenu(expanded = reasoningMenuExpanded, onDismissRequest = { reasoningMenuExpanded = false }) {
-                        reasoningOptions.forEach { option ->
-                            DropdownMenuItem(text = { Text(option) }, onClick = { reasoning = option; reasoningMenuExpanded = false })
-                        }
+                ExposedDropdownMenuBox(expanded = modelMenu, onExpandedChange = { if (filteredModels.isNotEmpty()) modelMenu = !modelMenu }) {
+                    OutlinedTextField(value = model.ifBlank { if (models.isEmpty()) "先にモデル一覧を取得" else "モデルを選択" }, onValueChange = {}, readOnly = true, label = { Text("モデル (${filteredModels.size})") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(modelMenu) }, modifier = Modifier.menuAnchor().fillMaxWidth())
+                    ExposedDropdownMenu(expanded = modelMenu, onDismissRequest = { modelMenu = false }) {
+                        filteredModels.forEach { m -> DropdownMenuItem(text = { Text("${m.name}\n${m.id}") }, onClick = { model = m.id; modelMenu = false }) }
                     }
                 }
 
-                val selectedModel = if (model == "CUSTOM") customModel.trim() else model
-                Text("使用モデル: ${selectedModel.ifBlank { "未入力" }} / reasoning: $reasoning")
-                Text("企画理解を重視する場合は GPT-5.4 + high を推奨")
-
+                ExposedDropdownMenuBox(expanded = reasoningMenu, onExpandedChange = { reasoningMenu = !reasoningMenu }) {
+                    OutlinedTextField(value = reasoning, onValueChange = {}, readOnly = true, label = { Text("思考レベル") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(reasoningMenu) }, modifier = Modifier.menuAnchor().fillMaxWidth())
+                    ExposedDropdownMenu(expanded = reasoningMenu, onDismissRequest = { reasoningMenu = false }) { reasoningOptions.forEach { r -> DropdownMenuItem(text = { Text(r) }, onClick = { reasoning = r; reasoningMenu = false }) } }
+                }
+                Text("使用モデル: ${model.ifBlank { "未選択" }}")
                 OutlinedTextField(value = objective, onValueChange = { objective = it }, label = { Text("目的") }, modifier = Modifier.fillMaxWidth())
-
-                Button(
-                    modifier = Modifier.fillMaxWidth().height(64.dp),
-                    enabled = status != "PLANNING" && apiKey.isNotBlank() && selectedModel.isNotBlank(),
-                    onClick = {
-                        scope.launch {
-                            status = "PLANNING"
-                            result = ""
-                            try {
-                                result = openRouter.createPlan(apiKey, selectedModel, objective, reasoning)
-                                status = "PLAN READY"
-                            } catch (e: Exception) {
-                                result = e.message ?: "エラー"
-                                status = "FAILED"
-                            }
-                        }
-                    }
-                ) { Text("企画生成・拡散案を作る") }
-
-                if (result.isNotBlank()) {
-                    Text("生成結果", style = MaterialTheme.typography.titleMedium)
-                    Text(result)
-                }
-                Text("外部サービスへの実行はConnector経由で段階的に接続します。ログイン等で人間操作が必要な場合はHuman Takeoverへ切り替えます。")
+                Button(modifier = Modifier.fillMaxWidth().height(64.dp), enabled = status != "PLANNING" && apiKey.isNotBlank() && model.isNotBlank(), onClick = {
+                    scope.launch { status = "PLANNING"; result = ""; try { result = openRouter.createPlan(apiKey, model, objective, reasoning); status = "PLAN READY" } catch (e: Exception) { result = e.message ?: "エラー"; status = "FAILED" } }
+                }) { Text("企画生成・拡散案を作る") }
+                if (result.isNotBlank()) { Text("生成結果", style = MaterialTheme.typography.titleMedium); Text(result) }
+                Text("OpenAI / Gemini / Claude / Grok をOpenRouterの現在のモデル一覧から選択します。人間操作が必要な外部サービスはHuman Takeoverへ切り替えます。")
             }
         }
     }
