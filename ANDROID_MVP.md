@@ -45,8 +45,6 @@ OpenRouter
 - 最新投稿結果
 - エラー表示
 
-例：
-
 ```text
 ZERO AGENT
 
@@ -61,13 +59,20 @@ SeaArt              CONNECTED / NOT CONNECTED
 ┌────────────────────────┐
 │    企画生成・拡散       │
 └────────────────────────┘
+```
 
-Progress
-✓ 企画生成
-✓ 投稿文生成
-○ コンテンツ生成
-○ 公開
-○ 拡散
+### Services
+
+各サービスについてアカウント一覧と接続状態を表示する。
+
+```text
+X
+  Creator-X       CONNECTED
+  Research-X      NOT CONNECTED
+
+[ログイン]
+[人間がブラウザでログイン]
+[新規アカウント作成]
 ```
 
 ### Settings
@@ -75,18 +80,16 @@ Progress
 - OpenRouter API Key
 - OpenRouter Model
 - Agent objective
-- X Connector設定
-- SeaArt Connector設定
+- Connector設定
 - 自動公開 ON/OFF
 - 実行前確認 ON/OFF
+- 認証方法
 
-APIキー等の秘密情報はログやAIプロンプトへ出力しない。
+APIキー、パスワード、Cookie、Secret等をAIプロンプトや通常ログへ出力しない。
 
 ## 4. OpenRouter
 
-OpenRouter Chat Completions互換APIを利用する。
-
-AIには構造化JSONを返させる。
+OpenRouter Chat Completions互換APIを利用する。AIには構造化JSONを返させ、アプリ側で検証する。
 
 ```json
 {
@@ -110,16 +113,13 @@ AIには構造化JSONを返させる。
 }
 ```
 
-JSON Schemaまたはアプリ側バリデーションを使い、不正な応答は公開しない。
-
 ## 5. AgentOrchestrator
-
-Android側にワンタップ処理を統括する `AgentOrchestrator` を置く。
 
 ```text
 run()
  ├── planner.plan()
  ├── policy.validatePlan()
+ ├── accountManager.ensureRequiredAccounts()
  ├── contentGenerator.generate()
  ├── policy.validateContent()
  ├── connectorManager.executeGeneration()
@@ -128,26 +128,32 @@ run()
  └── actionLog.save()
 ```
 
-途中で失敗した場合は後続処理を停止し、どの段階で失敗したか表示する。
-
-二重タップによる二重投稿を防ぐため、実行中はボタンを無効化し、runIdによる冪等性制御を行う。
+途中で失敗した場合は後続処理を停止し、どの段階で失敗したか表示する。二重タップによる二重投稿を防ぐため、実行中はボタンを無効化し、runIdによる冪等性制御を行う。
 
 ## 6. Connector
-
-Androidアプリ本体にSeaArtやX固有ロジックを密結合させない。
 
 ```kotlin
 interface ServiceConnector {
     val id: String
-    suspend fun isConnected(): Boolean
+    suspend fun isConnected(accountId: String): Boolean
     suspend fun capabilities(): Set<String>
     suspend fun execute(action: String, payload: String): ConnectorResult
 }
 ```
 
-想定Capability：
+共通Capability候補：
 
-### X
+```text
+authenticate
+oauth_login
+browser_login
+manual_login
+create_account
+check_session
+logout
+```
+
+X：
 
 ```text
 create_post
@@ -155,7 +161,7 @@ reply_to_post
 read_own_metrics
 ```
 
-### Image Generator
+Image Generator：
 
 ```text
 generate_image
@@ -163,36 +169,166 @@ get_generation_status
 get_asset
 ```
 
-SeaArtはImage Generator Connectorの実装候補とする。公式APIまたはサービスが許可する自動化手段が利用できる場合のみ自動実行し、利用できない場合は生成プロンプトを表示して手動処理へフォールバックする。
+SeaArtはImage Generator Connectorの実装候補とする。公式APIまたはサービスが許可する自動化手段が利用できる場合のみ自動実行し、利用できない場合は生成プロンプト表示や人間操作へフォールバックする。
 
-## 7. 公開モード
+## 7. Account Manager
 
-事故防止のため2モードを用意する。
+サービスごとに複数アカウントを登録可能にする。
+
+```text
+ServiceAccount
+├── id
+├── serviceId
+├── displayName
+├── externalAccountId
+├── authMethod
+├── status
+├── capabilities
+├── assignedAgentId
+└── lastSessionCheck
+```
+
+例：
+
+```text
+X
+├── Creator-X  → Creator Agent
+├── Developer-X → Developer Agent
+└── Research-X → Research Agent
+```
+
+## 8. 認証方式
+
+Connectorごとに利用可能な方式を宣言する。
+
+### OAuth / API認証
+
+公式OAuth/APIが利用可能なら優先する。
+
+### 自動ブラウザログイン
+
+サービスが許可する範囲でブラウザ操作を利用する。認証情報はSecret StoreからConnectorへ渡し、AIモデルには渡さない。
+
+### 手動ブラウザログイン
+
+Androidからログインページを開き、人間が操作する。ログイン完了後にConnectorがセッション状態を確認する。
+
+### Human Handoff
+
+CAPTCHA、SMS/メール確認、本人確認、重要な規約同意など人間による操作が必要になった場合、自動化を停止する。
+
+```text
+RUNNING
+ ↓
+HUMAN_ACTION_REQUIRED
+ ↓
+「Xでメール認証が必要です」
+ ↓
+[ブラウザを開く]
+ ↓
+人間が完了
+ ↓
+[完了を確認]
+ ↓
+SESSION CHECK
+ ↓
+CONNECTED
+ ↓
+RESUME
+```
+
+CAPTCHAやサービス側の制限を回避する機能は実装しない。
+
+## 9. アカウント作成
+
+Connectorが `create_account` をサポートする場合、Zero Agentからアカウント作成フローを開始できる。
+
+```text
+Agent
+ ↓
+「画像生成サービスが必要」
+ ↓
+Account Manager
+ ↓
+既存アカウント検索
+ ↓
+なし
+ ↓
+アカウント作成開始
+ ↓
+入力可能な項目を処理
+ ↓
+人間操作が必要？
+ ├─ NO → 続行
+ └─ YES → HUMAN_ACTION_REQUIRED
+ ↓
+接続確認
+ ↓
+AgentへCapability提供
+```
+
+新しい外部アカウントを勝手に大量作成する用途には使わず、作成前の人間承認を設定可能にする。
+
+## 10. Credential / Session管理
+
+```text
+AI Agent
+   │
+   │ account = Creator-X / status = CONNECTED
+   ▼
+Connector
+   │
+   ▼
+Credential Store
+   │
+   ▼
+External Service
+```
+
+AIモデルに見せる情報：
+
+```text
+service = X
+account = Creator-X
+status = CONNECTED
+capabilities = [create_post, reply_to_post]
+```
+
+見せない情報：
+
+- パスワード
+- OAuth client secret
+- API secret
+- Session Cookie
+- refresh token
+- Bitcoin秘密鍵
+
+AndroidではKeystoreを利用する。本格運用ではサーバー側Secret Vaultへの移行を想定する。
+
+## 11. 公開モード
 
 ### Preview Mode
 
-ボタン1つで企画・投稿案・画像生成案まで作り、ユーザーが確認後に公開する。
+企画・投稿案・画像生成案まで生成し、人間が確認して公開する。初期値はこちら。
 
 ### Auto Publish Mode
 
-接続済みConnectorについて、Policy Engineを通過した処理を自動公開する。
+接続済みConnectorについてPolicy Engineを通過した処理を自動公開する。
 
-初期値はPreview Modeとする。
+## 12. 拡散
 
-## 8. 拡散
-
-「拡散」はスパム送信ではなく、以下の正規機能で行う。
+拡散はサービス規約に沿った正規機能で行う。
 
 - 投稿文最適化
 - 適切なハッシュタグ生成
 - 自分の投稿への補足リプライ
 - 投稿時間の提案
-- 接続サービスで許可された再投稿/クロスポスト
-- 投稿成果の計測と次回企画への反映
+- 許可された再投稿/クロスポスト
+- 投稿成果の計測
 
 大量リプライ、大量DM、無関係なユーザーへの自動投稿は実装しない。
 
-## 9. Android技術構成
+## 13. Android技術構成
 
 ```text
 Kotlin
@@ -202,48 +338,42 @@ Coroutines
 Retrofit / OkHttp
 Room
 Android Keystore
+Custom Tabs / OAuth
 ```
-
-推奨パッケージ：
 
 ```text
 app/
 ├── ui/
 │   ├── home/
+│   ├── services/
+│   ├── account/
 │   └── settings/
 ├── agent/
 │   ├── AgentOrchestrator.kt
 │   ├── Planner.kt
 │   └── PolicyEngine.kt
+├── accounts/
+│   ├── AccountManager.kt
+│   ├── ServiceAccount.kt
+│   └── HumanHandoffManager.kt
 ├── openrouter/
-│   ├── OpenRouterApi.kt
-│   ├── OpenRouterClient.kt
-│   └── models/
 ├── connectors/
 │   ├── ServiceConnector.kt
 │   ├── ConnectorManager.kt
 │   ├── x/
 │   └── image/
 ├── data/
-│   ├── db/
-│   └── repository/
 └── security/
     └── SecretStore.kt
 ```
 
-## 10. OpenRouter Key
-
-MVPではユーザー自身のOpenRouter API Keyを設定画面から登録できるようにする。
-
-保存時はAndroid Keystoreを利用した暗号化ストレージを使用する。API KeyをGitHubへコミットしない。
-
-本番サービス化する場合は、APIキーをAPK内に埋め込まず、Zero Agent Backendを介してOpenRouterを利用する構成を推奨する。
-
-## 11. 実行状態
+## 14. 実行状態
 
 ```text
 IDLE
 PLANNING
+AUTHENTICATING
+HUMAN_ACTION_REQUIRED
 GENERATING
 POLICY_CHECK
 PUBLISHING
@@ -254,22 +384,25 @@ FAILED
 
 UIはStateFlowで状態を監視する。
 
-## 12. MVP完成条件
+## 15. MVP完成条件
 
 1. Androidアプリが起動する
-2. OpenRouter API Keyを登録できる
+2. OpenRouter API Keyを安全に登録できる
 3. OpenRouterモデルを指定できる
 4. ボタン1つで企画を生成できる
 5. 投稿本文・リプライ・ハッシュタグ・画像生成プロンプトを生成できる
-6. 結果をAndroid画面で確認できる
-7. 実行履歴をRoomへ保存できる
-8. Connectorを追加可能な構造になっている
-9. Preview Modeで公開前確認ができる
-10. 対応Connector接続時は公開処理へ進める
+6. Connectorを追加可能
+7. サービスごとにアカウントを登録できる
+8. OAuth/API・自動・手動ログインをConnectorに応じて選択できる
+9. 対応サービスではアカウント作成フローを開始できる
+10. CAPTCHA/SMS/メール/本人確認等ではHuman Handoffできる
+11. 複数アカウントをAgentへ割り当てられる
+12. Preview Modeで公開前確認できる
+13. Auto Publish Modeへ切り替えられる
+14. 実行履歴を保存できる
+15. 秘密情報がAIモデルや通常ログへ露出しない
 
-## 13. 次段階
-
-MVP完成後に以下を追加する。
+## 16. 次段階
 
 - X公式連携
 - SeaArt等の画像生成Connector
@@ -281,4 +414,4 @@ MVP完成後に以下を追加する。
 - 定期自律実行
 - 収益ダッシュボード
 
-最終的には「企画生成・拡散」ボタンを、Zero Agentの1サイクル `OBSERVE → PLAN → ACT → MEASURE → LEARN` を開始するトリガーとして扱う。
+最終的には、AIが必要なCapabilityを判断し、既存アカウントを利用、必要なら新規アカウント作成フローを開始し、人間操作が必要な部分だけ引き継ぎを要求して処理を再開できる構成とする。
