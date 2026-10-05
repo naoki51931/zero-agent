@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
-    <application android:theme="@style/Theme.ZeroAgent" android:label="Zero Agent" android:allowBackup="false">
+    <application
+        android:theme="@style/Theme.ZeroAgent"
+        android:label="Zero Agent"
+        android:icon="@drawable/zero_agent_icon_500"
+        android:roundIcon="@drawable/zero_agent_icon_500"
+        android:allowBackup="false">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
