@@ -14,23 +14,24 @@ data class OpenRouterModel(val id: String, val name: String)
 class OpenRouterClient {
     private val client = OkHttpClient()
 
-    suspend fun fetchModels(apiKey: String): List<OpenRouterModel> = withContext(Dispatchers.IO) {
-        require(apiKey.isNotBlank()) { "OpenRouter API key is required" }
-        val request = Request.Builder()
+    suspend fun fetchModels(apiKey: String = ""): List<OpenRouterModel> = withContext(Dispatchers.IO) {
+        val builder = Request.Builder()
             .url("https://openrouter.ai/api/v1/models")
-            .header("Authorization", "Bearer $apiKey")
-            .build()
-        client.newCall(request).execute().use { response ->
+            .header("Accept", "application/json")
+            .header("X-Title", "Zero Agent Android")
+        if (apiKey.isNotBlank()) builder.header("Authorization", "Bearer ${apiKey.trim()}")
+        client.newCall(builder.build()).execute().use { response ->
             val text = response.body?.string().orEmpty()
-            if (!response.isSuccessful) error("OpenRouter HTTP ${response.code}: $text")
-            val data = JSONObject(text).getJSONArray("data")
+            if (!response.isSuccessful) error("モデル一覧取得失敗 HTTP ${response.code}: $text")
+            val root = JSONObject(text)
+            val data = root.optJSONArray("data") ?: error("OpenRouterのモデル一覧レスポンスを解析できませんでした")
             buildList {
                 for (i in 0 until data.length()) {
-                    val item = data.getJSONObject(i)
-                    val id = item.optString("id")
+                    val item = data.optJSONObject(i) ?: continue
+                    val id = item.optString("id").trim()
                     if (id.isNotBlank()) add(OpenRouterModel(id, item.optString("name", id)))
                 }
-            }.sortedBy { it.name.lowercase() }
+            }.distinctBy { it.id }.sortedBy { it.name.lowercase() }
         }
     }
 
@@ -55,7 +56,7 @@ class OpenRouterClient {
             .toString()
         val request = Request.Builder()
             .url("https://openrouter.ai/api/v1/chat/completions")
-            .header("Authorization", "Bearer $apiKey")
+            .header("Authorization", "Bearer ${apiKey.trim()}")
             .header("Content-Type", "application/json")
             .header("X-Title", "Zero Agent Android")
             .post(body.toRequestBody("application/json".toMediaType()))
