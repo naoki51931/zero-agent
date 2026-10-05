@@ -22,14 +22,27 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ZeroAgentApp(wallet: WalletManager) {
     val scope = rememberCoroutineScope()
     val openRouter = remember { OpenRouterClient() }
+    val modelOptions = listOf(
+        "openrouter/auto",
+        "openai/gpt-5.2",
+        "openai/gpt-5-mini",
+        "google/gemini-2.5-flash",
+        "google/gemini-2.5-pro",
+        "anthropic/claude-sonnet-4.5",
+        "deepseek/deepseek-chat-v3.1",
+        "CUSTOM"
+    )
     var status by remember { mutableStateOf("READY") }
     var mode by remember { mutableStateOf("HYBRID") }
     var apiKey by remember { mutableStateOf("") }
     var model by remember { mutableStateOf("openrouter/auto") }
+    var modelMenuExpanded by remember { mutableStateOf(false) }
+    var customModel by remember { mutableStateOf("") }
     var objective by remember { mutableStateOf("オリジナルコンテンツを企画し、X向けの投稿案を作る") }
     var result by remember { mutableStateOf("") }
     var address by remember { mutableStateOf(wallet.getReceiveAddress() ?: "未作成") }
@@ -72,18 +85,59 @@ fun ZeroAgentApp(wallet: WalletManager) {
                     visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth()
                 )
-                OutlinedTextField(value = model, onValueChange = { model = it }, label = { Text("Model") }, modifier = Modifier.fillMaxWidth())
+
+                ExposedDropdownMenuBox(
+                    expanded = modelMenuExpanded,
+                    onExpandedChange = { modelMenuExpanded = !modelMenuExpanded }
+                ) {
+                    OutlinedTextField(
+                        value = if (model == "CUSTOM") "カスタムモデル" else model,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("OpenRouterモデル") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelMenuExpanded) },
+                        modifier = Modifier.menuAnchor().fillMaxWidth()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = modelMenuExpanded,
+                        onDismissRequest = { modelMenuExpanded = false }
+                    ) {
+                        modelOptions.forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text(if (option == "CUSTOM") "その他（モデルIDを入力）" else option) },
+                                onClick = {
+                                    model = option
+                                    modelMenuExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                if (model == "CUSTOM") {
+                    OutlinedTextField(
+                        value = customModel,
+                        onValueChange = { customModel = it },
+                        label = { Text("OpenRouter Model ID") },
+                        supportingText = { Text("例: provider/model-name") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                val selectedModel = if (model == "CUSTOM") customModel.trim() else model
+                Text("使用モデル: ${selectedModel.ifBlank { "未入力" }}")
+
                 OutlinedTextField(value = objective, onValueChange = { objective = it }, label = { Text("目的") }, modifier = Modifier.fillMaxWidth())
 
                 Button(
                     modifier = Modifier.fillMaxWidth().height(64.dp),
-                    enabled = status != "PLANNING",
+                    enabled = status != "PLANNING" && apiKey.isNotBlank() && selectedModel.isNotBlank(),
                     onClick = {
                         scope.launch {
                             status = "PLANNING"
                             result = ""
                             try {
-                                result = openRouter.createPlan(apiKey, model, objective)
+                                result = openRouter.createPlan(apiKey, selectedModel, objective)
                                 status = "PLAN READY"
                             } catch (e: Exception) {
                                 result = e.message ?: "エラー"
