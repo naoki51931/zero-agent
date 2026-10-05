@@ -38,6 +38,7 @@ fun ZeroAgentApp(wallet: WalletManager) {
     var models by remember { mutableStateOf<List<OpenRouterModel>>(emptyList()) }
     var model by remember { mutableStateOf("") }
     var modelMenu by remember { mutableStateOf(false) }
+    var modelLoadMessage by remember { mutableStateOf("モデル一覧を読み込んでいます…") }
     var reasoning by remember { mutableStateOf("high") }
     var reasoningMenu by remember { mutableStateOf(false) }
     var objective by remember { mutableStateOf("オリジナルコンテンツを企画し、必要な制作物と配布先を決め、各サービスで実行可能な行動計画を作る") }
@@ -45,12 +46,28 @@ fun ZeroAgentApp(wallet: WalletManager) {
     var address by remember { mutableStateOf(wallet.getReceiveAddress() ?: "未作成") }
     var balance by remember { mutableLongStateOf(wallet.getBalanceSats()) }
 
+    suspend fun loadModels() {
+        status = "MODELS LOADING"
+        modelLoadMessage = "OpenRouterからモデル一覧を取得中…"
+        try {
+            val loaded = openRouter.fetchModels(apiKey)
+            models = loaded
+            modelLoadMessage = "${loaded.size}件のモデルを取得しました"
+            status = "READY"
+        } catch (e: Exception) {
+            modelLoadMessage = e.message ?: "モデル取得エラー"
+            status = "FAILED"
+        }
+    }
+
+    LaunchedEffect(Unit) { loadModels() }
+
     fun matchesProvider(id: String): Boolean = when (provider) {
         "OpenAI" -> id.startsWith("openai/")
         "Gemini" -> id.startsWith("google/") && id.contains("gemini", true)
         "Claude" -> id.startsWith("anthropic/") && id.contains("claude", true)
-        "Grok" -> id.startsWith("x-ai/") && id.contains("grok", true)
-        else -> true
+        "Grok" -> (id.startsWith("x-ai/") || id.startsWith("xai/")) && id.contains("grok", true)
+        else -> !id.startsWith("openai/") && !(id.startsWith("google/") && id.contains("gemini", true)) && !(id.startsWith("anthropic/") && id.contains("claude", true)) && !((id.startsWith("x-ai/") || id.startsWith("xai/")) && id.contains("grok", true))
     }
     val filteredModels = models.filter { matchesProvider(it.id) }
 
@@ -73,13 +90,11 @@ fun ZeroAgentApp(wallet: WalletManager) {
                 Text("※ Testnet専用。実BTCは送らないでください。")
                 HorizontalDivider()
                 Text("OpenRouter AI", style = MaterialTheme.typography.titleLarge)
-                OutlinedTextField(value = apiKey, onValueChange = { apiKey = it }, label = { Text("API Key") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-                Button(enabled = apiKey.isNotBlank() && status != "MODELS LOADING", onClick = {
-                    scope.launch {
-                        status = "MODELS LOADING"
-                        try { models = openRouter.fetchModels(apiKey); status = "READY" } catch (e: Exception) { result = e.message ?: "モデル取得エラー"; status = "FAILED" }
-                    }
-                }, modifier = Modifier.fillMaxWidth()) { Text("最新モデル一覧を取得") }
+                OutlinedTextField(value = apiKey, onValueChange = { apiKey = it }, label = { Text("API Key（企画生成時に必要）") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+                Button(enabled = status != "MODELS LOADING", onClick = { scope.launch { loadModels() } }, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (status == "MODELS LOADING") "取得中…" else "最新モデル一覧を再取得")
+                }
+                Text(modelLoadMessage, style = MaterialTheme.typography.bodySmall)
 
                 ExposedDropdownMenuBox(expanded = providerMenu, onExpandedChange = { providerMenu = !providerMenu }) {
                     OutlinedTextField(value = provider, onValueChange = {}, readOnly = true, label = { Text("AI系統") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(providerMenu) }, modifier = Modifier.menuAnchor().fillMaxWidth())
@@ -89,7 +104,7 @@ fun ZeroAgentApp(wallet: WalletManager) {
                 }
 
                 ExposedDropdownMenuBox(expanded = modelMenu, onExpandedChange = { if (filteredModels.isNotEmpty()) modelMenu = !modelMenu }) {
-                    OutlinedTextField(value = model.ifBlank { if (models.isEmpty()) "先にモデル一覧を取得" else "モデルを選択" }, onValueChange = {}, readOnly = true, label = { Text("モデル (${filteredModels.size})") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(modelMenu) }, modifier = Modifier.menuAnchor().fillMaxWidth())
+                    OutlinedTextField(value = model.ifBlank { if (models.isEmpty()) "モデル一覧を取得中" else if (filteredModels.isEmpty()) "該当モデルなし" else "モデルを選択" }, onValueChange = {}, readOnly = true, label = { Text("モデル (${filteredModels.size})") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(modelMenu) }, modifier = Modifier.menuAnchor().fillMaxWidth())
                     ExposedDropdownMenu(expanded = modelMenu, onDismissRequest = { modelMenu = false }) {
                         filteredModels.forEach { m -> DropdownMenuItem(text = { Text("${m.name}\n${m.id}") }, onClick = { model = m.id; modelMenu = false }) }
                     }
@@ -105,7 +120,7 @@ fun ZeroAgentApp(wallet: WalletManager) {
                     scope.launch { status = "PLANNING"; result = ""; try { result = openRouter.createPlan(apiKey, model, objective, reasoning); status = "PLAN READY" } catch (e: Exception) { result = e.message ?: "エラー"; status = "FAILED" } }
                 }) { Text("企画生成・拡散案を作る") }
                 if (result.isNotBlank()) { Text("生成結果", style = MaterialTheme.typography.titleMedium); Text(result) }
-                Text("OpenAI / Gemini / Claude / Grok をOpenRouterの現在のモデル一覧から選択します。人間操作が必要な外部サービスはHuman Takeoverへ切り替えます。")
+                Text("モデル一覧は起動時に自動取得します。OpenAI / Gemini / Claude / Grok から選択し、企画生成時だけOpenRouter API Keyを使用します。")
             }
         }
     }
