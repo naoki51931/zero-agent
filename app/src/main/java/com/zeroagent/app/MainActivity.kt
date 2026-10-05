@@ -28,10 +28,14 @@ fun ZeroAgentApp(wallet: WalletManager) {
     val scope = rememberCoroutineScope()
     val openRouter = remember { OpenRouterClient() }
     val modelOptions = listOf(
+        "openai/gpt-5.6-sol-pro",
+        "openai/gpt-5.6-sol",
+        "openai/gpt-5.6-terra-pro",
+        "openai/gpt-5.6-terra",
+        "openai/gpt-5.6-luna-pro",
+        "openai/gpt-5.6-luna",
+        "openai/gpt-5.4",
         "openrouter/auto",
-        "openai/gpt-5.2",
-        "openai/gpt-5-mini",
-        "google/gemini-2.5-flash",
         "google/gemini-2.5-pro",
         "anthropic/claude-sonnet-4.5",
         "deepseek/deepseek-chat-v3.1",
@@ -40,10 +44,10 @@ fun ZeroAgentApp(wallet: WalletManager) {
     var status by remember { mutableStateOf("READY") }
     var mode by remember { mutableStateOf("HYBRID") }
     var apiKey by remember { mutableStateOf("") }
-    var model by remember { mutableStateOf("openrouter/auto") }
+    var model by remember { mutableStateOf("openai/gpt-5.6-sol") }
     var modelMenuExpanded by remember { mutableStateOf(false) }
     var customModel by remember { mutableStateOf("") }
-    var objective by remember { mutableStateOf("オリジナルコンテンツを企画し、X向けの投稿案を作る") }
+    var objective by remember { mutableStateOf("オリジナルコンテンツを企画し、必要な制作物と配布先を決め、各サービスで実行可能な行動計画を作る") }
     var result by remember { mutableStateOf("") }
     var address by remember { mutableStateOf(wallet.getReceiveAddress() ?: "未作成") }
     var balance by remember { mutableLongStateOf(wallet.getBalanceSats()) }
@@ -151,7 +155,7 @@ fun ZeroAgentApp(wallet: WalletManager) {
                     Text("生成結果", style = MaterialTheme.typography.titleMedium)
                     Text(result)
                 }
-                Text("外部SNSへの自動投稿はまだ無効です。生成結果を確認してからConnectorを接続します。")
+                Text("外部サービスへの実行はConnector経由で段階的に接続します。ログイン等で人間操作が必要な場合はHuman Takeoverへ切り替えます。")
             }
         }
     }
