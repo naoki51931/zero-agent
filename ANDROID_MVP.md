@@ -4,7 +4,7 @@
 
 Androidアプリからボタン1つで、OpenRouter経由のAIが「企画 → 投稿案生成 → 拡散用コンテンツ生成 → 公開処理」を実行できるMVPを作る。
 
-最初のMVPでは Creator Agent を中心に実装し、外部サービスはConnector方式で後から追加できるようにする。
+Creator Agentを中心に実装し、外部サービスはConnector方式で追加可能にする。AI自動操作と人間操作を安全に切り替えられるHuman Takeoverを標準機能とする。
 
 ## 2. ワンタップフロー
 
@@ -17,101 +17,59 @@ OpenRouter
         ↓
 コンテンツ企画・画像プロンプト生成
         ↓
-投稿本文生成
+投稿本文・リプライ・拡散案生成
         ↓
-リプライ文生成
+Policy Check
         ↓
-ハッシュタグ・拡散案生成
-        ↓
-接続済みConnectorへ実行要求
+接続済みConnector
         ↓
 投稿・結果記録
 ```
 
-外部公開は接続済みサービスの権限・利用規約・API仕様の範囲で実行する。
+外部公開は各サービスの利用規約・API仕様・許可された自動化範囲に従う。
 
 ## 3. Android画面
 
 ### Home
 
-- Zero Agentロゴ/タイトル
 - Agent状態
 - OpenRouter接続状態
 - 選択モデル
-- 接続サービス一覧
+- 接続サービス
 - 大きな「企画生成・拡散」ボタン
+- 「人間が操作」ボタン
 - 実行進捗
-- 最新の企画
-- 最新投稿結果
-- エラー表示
+- 最新企画/投稿結果
 
 ```text
 ZERO AGENT
 
-Creator Agent     READY
-OpenRouter         CONNECTED
-Model              selected model
+Creator Agent      READY
+OpenRouter          CONNECTED
 
-Services
-X                   CONNECTED / NOT CONNECTED
-SeaArt              CONNECTED / NOT CONNECTED
+X                   CONNECTED
+SeaArt              CONNECTED
 
-┌────────────────────────┐
-│    企画生成・拡散       │
-└────────────────────────┘
+[      企画生成・拡散      ]
+[       人間が操作         ]
 ```
 
 ### Services
 
-各サービスについてアカウント一覧と接続状態を表示する。
-
 ```text
-X
-  Creator-X       CONNECTED
-  Research-X      NOT CONNECTED
+X / Creator-X
+状態: CONNECTED
+操作モード: HYBRID
 
+[AIに任せる]
+[人間が操作]
 [ログイン]
-[人間がブラウザでログイン]
 [新規アカウント作成]
 ```
 
-### Settings
-
-- OpenRouter API Key
-- OpenRouter Model
-- Agent objective
-- Connector設定
-- 自動公開 ON/OFF
-- 実行前確認 ON/OFF
-- 認証方法
-
-APIキー、パスワード、Cookie、Secret等をAIプロンプトや通常ログへ出力しない。
-
 ## 4. OpenRouter
 
-OpenRouter Chat Completions互換APIを利用する。AIには構造化JSONを返させ、アプリ側で検証する。
-
-```json
-{
-  "plan": {
-    "title": "企画タイトル",
-    "concept": "企画概要",
-    "target": "対象ユーザー",
-    "reason": "企画理由"
-  },
-  "content": {
-    "image_prompt": "画像生成用プロンプト",
-    "free_content_description": "無料公開部分",
-    "paid_content_description": "有料部分の企画"
-  },
-  "distribution": {
-    "post_text": "X投稿本文",
-    "reply_text": "リプライ本文",
-    "hashtags": ["tag1", "tag2"],
-    "call_to_action": "CTA"
-  }
-}
-```
+OpenRouter Chat Completions互換APIを利用し、企画、画像プロンプト、投稿本文、リプライ、ハッシュタグ、CTA等を構造化JSONとして生成する。APIキー等の秘密情報はモデルへ渡さない。
 
 ## 5. AgentOrchestrator
 
@@ -120,6 +78,7 @@ run()
  ├── planner.plan()
  ├── policy.validatePlan()
  ├── accountManager.ensureRequiredAccounts()
+ ├── takeoverManager.checkMode()
  ├── contentGenerator.generate()
  ├── policy.validateContent()
  ├── connectorManager.executeGeneration()
@@ -128,7 +87,7 @@ run()
  └── actionLog.save()
 ```
 
-途中で失敗した場合は後続処理を停止し、どの段階で失敗したか表示する。二重タップによる二重投稿を防ぐため、実行中はボタンを無効化し、runIdによる冪等性制御を行う。
+runIdによる冪等性制御を行い、AIと人間が同時に同じアカウントを操作しないようロックする。
 
 ## 6. Connector
 
@@ -151,29 +110,19 @@ manual_login
 create_account
 check_session
 logout
+human_takeover
+resume_agent
 ```
 
-X：
+X: `create_post`, `reply_to_post`, `read_own_metrics`
 
-```text
-create_post
-reply_to_post
-read_own_metrics
-```
+Image Generator: `generate_image`, `get_generation_status`, `get_asset`
 
-Image Generator：
-
-```text
-generate_image
-get_generation_status
-get_asset
-```
-
-SeaArtはImage Generator Connectorの実装候補とする。公式APIまたはサービスが許可する自動化手段が利用できる場合のみ自動実行し、利用できない場合は生成プロンプト表示や人間操作へフォールバックする。
+公式APIまたはサービスが許可する自動化方法を優先する。
 
 ## 7. Account Manager
 
-サービスごとに複数アカウントを登録可能にする。
+複数アカウントを登録しAgentへ割り当て可能にする。
 
 ```text
 ServiceAccount
@@ -182,153 +131,112 @@ ServiceAccount
 ├── displayName
 ├── externalAccountId
 ├── authMethod
+├── operationMode
 ├── status
 ├── capabilities
 ├── assignedAgentId
 └── lastSessionCheck
 ```
 
-例：
+## 8. 操作モード
+
+サービス/アカウント単位で3モードを選べる。
+
+### HUMAN
+
+外部サービスの操作は人間が行う。AIは企画、文章、画像プロンプト等を準備する。
+
+### AGENT
+
+サービスが許可するAPI/自動化範囲でAgentが操作する。人間がTakeoverした時点で即時停止する。
+
+### HYBRID
+
+通常はAgentが処理し、必要な場面またはユーザーの任意操作で人間へ切り替える。初期推奨モード。
+
+## 9. Human Takeover
+
+ユーザーはいつでも「人間が操作」を押せる。
 
 ```text
-X
-├── Creator-X  → Creator Agent
-├── Developer-X → Developer Agent
-└── Research-X → Research Agent
-```
-
-## 8. 認証方式
-
-Connectorごとに利用可能な方式を宣言する。
-
-### OAuth / API認証
-
-公式OAuth/APIが利用可能なら優先する。
-
-### 自動ブラウザログイン
-
-サービスが許可する範囲でブラウザ操作を利用する。認証情報はSecret StoreからConnectorへ渡し、AIモデルには渡さない。
-
-### 手動ブラウザログイン
-
-Androidからログインページを開き、人間が操作する。ログイン完了後にConnectorがセッション状態を確認する。
-
-### Human Handoff
-
-CAPTCHA、SMS/メール確認、本人確認、重要な規約同意など人間による操作が必要になった場合、自動化を停止する。
-
-```text
-RUNNING
- ↓
-HUMAN_ACTION_REQUIRED
- ↓
-「Xでメール認証が必要です」
- ↓
-[ブラウザを開く]
- ↓
-人間が完了
- ↓
-[完了を確認]
- ↓
+AGENT_RUNNING
+      ↓
+[人間が操作]
+      ↓
+PAUSING
+      ↓
+Connectorの自動操作停止
+      ↓
+操作ロック取得
+      ↓
+HUMAN_CONTROL
+      ↓
+対象サービスをブラウザで開く
+      ↓
+人間が通常操作
+      ↓
+[AIに戻す]
+      ↓
 SESSION CHECK
- ↓
-CONNECTED
- ↓
-RESUME
+      ↓
+状態再取得
+      ↓
+AGENT_READY
 ```
 
-CAPTCHAやサービス側の制限を回避する機能は実装しない。
+人間操作中はAgentから同じアカウントへの投稿、クリック、ログイン、更新等を禁止する。
 
-## 9. アカウント作成
+### 自動Handoff
 
-Connectorが `create_account` をサポートする場合、Zero Agentからアカウント作成フローを開始できる。
+以下では自動的に人間へ引き継げる。
 
-```text
-Agent
- ↓
-「画像生成サービスが必要」
- ↓
-Account Manager
- ↓
-既存アカウント検索
- ↓
-なし
- ↓
-アカウント作成開始
- ↓
-入力可能な項目を処理
- ↓
-人間操作が必要？
- ├─ NO → 続行
- └─ YES → HUMAN_ACTION_REQUIRED
- ↓
-接続確認
- ↓
-AgentへCapability提供
-```
+- CAPTCHA
+- SMS/メール確認
+- 本人確認
+- 規約への重要な同意
+- セキュリティ警告
+- サービス側が人間操作を要求した場合
+- 自動化が許可されているか判断できない場合
+- ログイン失敗が連続した場合
 
-新しい外部アカウントを勝手に大量作成する用途には使わず、作成前の人間承認を設定可能にする。
+CAPTCHAやサービス制限を自動回避しない。
 
-## 10. Credential / Session管理
+## 10. 人間操作の目的
 
-```text
-AI Agent
-   │
-   │ account = Creator-X / status = CONNECTED
-   ▼
-Connector
-   │
-   ▼
-Credential Store
-   │
-   ▼
-External Service
-```
+Human Takeoverは「人間に見せかけて自動化を隠す」ためには使用しない。サービス規約を守りながら、人間による通常利用が必要な処理、本人確認、品質確認、編集、投稿確認などを実際に人間が担当するための機能とする。
 
-AIモデルに見せる情報：
+サービスが自動操作を禁止している場合、その操作はHUMANモードに固定できる。
 
-```text
-service = X
-account = Creator-X
-status = CONNECTED
-capabilities = [create_post, reply_to_post]
-```
+## 11. アカウント作成
 
-見せない情報：
+Connectorが対応する場合はアカウント作成フローを開始できる。CAPTCHA、メール/SMS認証、本人確認等では `HUMAN_ACTION_REQUIRED` へ遷移する。大量アカウント作成は行わない。
 
-- パスワード
-- OAuth client secret
-- API secret
-- Session Cookie
-- refresh token
-- Bitcoin秘密鍵
+## 12. Credential / Session管理
 
-AndroidではKeystoreを利用する。本格運用ではサーバー側Secret Vaultへの移行を想定する。
+AIモデルにはアカウント名、接続状態、Capabilityのみ渡す。
 
-## 11. 公開モード
+パスワード、OAuth Secret、API Secret、Cookie、refresh token等はAndroid Keystore/Secret Storeで管理する。
+
+## 13. 公開モード
 
 ### Preview Mode
-
-企画・投稿案・画像生成案まで生成し、人間が確認して公開する。初期値はこちら。
+企画・投稿案・画像生成案を生成し、人間が確認後に公開する。
 
 ### Auto Publish Mode
+Policy Engineとサービス規約の範囲内で接続済みConnectorから公開する。
 
-接続済みConnectorについてPolicy Engineを通過した処理を自動公開する。
-
-## 12. 拡散
-
-拡散はサービス規約に沿った正規機能で行う。
+## 14. 拡散
 
 - 投稿文最適化
 - 適切なハッシュタグ生成
 - 自分の投稿への補足リプライ
-- 投稿時間の提案
+- 投稿時間提案
 - 許可された再投稿/クロスポスト
-- 投稿成果の計測
+- 成果計測
 
-大量リプライ、大量DM、無関係なユーザーへの自動投稿は実装しない。
+大量リプライ、大量DM、無関係なユーザーへの自動投稿は行わない。
 
-## 13. Android技術構成
+## 15. Android技術構成
 
 ```text
 Kotlin
@@ -347,33 +255,31 @@ app/
 │   ├── home/
 │   ├── services/
 │   ├── account/
-│   └── settings/
+│   └── takeover/
 ├── agent/
 │   ├── AgentOrchestrator.kt
-│   ├── Planner.kt
 │   └── PolicyEngine.kt
 ├── accounts/
 │   ├── AccountManager.kt
-│   ├── ServiceAccount.kt
-│   └── HumanHandoffManager.kt
+│   ├── HumanHandoffManager.kt
+│   └── HumanTakeoverManager.kt
 ├── openrouter/
 ├── connectors/
-│   ├── ServiceConnector.kt
-│   ├── ConnectorManager.kt
-│   ├── x/
-│   └── image/
 ├── data/
 └── security/
-    └── SecretStore.kt
 ```
 
-## 14. 実行状態
+## 16. 実行状態
 
 ```text
 IDLE
 PLANNING
 AUTHENTICATING
+AGENT_RUNNING
+PAUSING_FOR_HUMAN
 HUMAN_ACTION_REQUIRED
+HUMAN_CONTROL
+RESUMING_AGENT
 GENERATING
 POLICY_CHECK
 PUBLISHING
@@ -382,36 +288,34 @@ COMPLETED
 FAILED
 ```
 
-UIはStateFlowで状態を監視する。
+## 17. MVP完成条件
 
-## 15. MVP完成条件
+1. Androidアプリ起動
+2. OpenRouter接続
+3. ワンタップ企画生成
+4. 投稿/画像生成案生成
+5. Connector追加可能
+6. 複数アカウント管理
+7. HUMAN / AGENT / HYBRID切替
+8. 任意タイミングでHuman Takeover
+9. Human Control中のAgent操作停止
+10. 「AIに戻す」で状態確認後に再開
+11. CAPTCHA/SMS/メール/本人確認でHuman Handoff
+12. Preview / Auto Publish切替
+13. 実行履歴保存
+14. 秘密情報をAIへ露出しない
+15. サービスが自動化を禁止する操作はHUMAN固定可能
 
-1. Androidアプリが起動する
-2. OpenRouter API Keyを安全に登録できる
-3. OpenRouterモデルを指定できる
-4. ボタン1つで企画を生成できる
-5. 投稿本文・リプライ・ハッシュタグ・画像生成プロンプトを生成できる
-6. Connectorを追加可能
-7. サービスごとにアカウントを登録できる
-8. OAuth/API・自動・手動ログインをConnectorに応じて選択できる
-9. 対応サービスではアカウント作成フローを開始できる
-10. CAPTCHA/SMS/メール/本人確認等ではHuman Handoffできる
-11. 複数アカウントをAgentへ割り当てられる
-12. Preview Modeで公開前確認できる
-13. Auto Publish Modeへ切り替えられる
-14. 実行履歴を保存できる
-15. 秘密情報がAIモデルや通常ログへ露出しない
-
-## 16. 次段階
+## 18. 次段階
 
 - X公式連携
 - SeaArt等の画像生成Connector
 - 有料コンテンツ販売Connector
 - Bitcoin Wallet
-- 投稿Metrics取得
+- Metrics取得
 - AIによる成果分析
-- Creator / Developer / Research Agent切替
+- 3 Agent切替
 - 定期自律実行
 - 収益ダッシュボード
 
-最終的には、AIが必要なCapabilityを判断し、既存アカウントを利用、必要なら新規アカウント作成フローを開始し、人間操作が必要な部分だけ引き継ぎを要求して処理を再開できる構成とする。
+最終的には「AIが得意な企画・生成・分析」と「人間が担当すべきログイン・本人確認・品質判断・規約上必要な操作」を途中で自由に切り替えられるHuman-in-the-loop型Zero Agentとする。
