@@ -1,11 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Zero Agent Chrome Controller",
-  "version": "0.1.0",
-  "description": "User-approved browser inspection and actions",
+  "version": "0.2.0",
+  "description": "AI-assisted browser inspection with explicit confirmation for each action",
   "permissions": [
     "activeTab",
     "scripting"
+  ],
+  "host_permissions": [
+    "https://openrouter.ai/*"
   ],
   "action": {
     "default_popup": "popup.html"
