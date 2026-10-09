@@ -12,6 +12,7 @@ import android.net.Uri
 import android.widget.EditText
 import android.text.InputType
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -116,6 +117,40 @@ class ChromeAssistService : AccessibilityService() {
             autoRunning = false; runToken++; stepsRemaining = 0
             performGlobalAction(GLOBAL_ACTION_HOME)
         } }
+        val dragHandle = TextView(this).apply {
+            text = "☰ ここをドラッグして移動"
+            textSize = 16f
+            setPadding(24, 18, 24, 18)
+            setBackgroundColor(0xFFD4C8ED.toInt())
+        }
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            PixelFormat.TRANSLUCENT
+        ).apply { gravity = Gravity.TOP; y = (48 * resources.displayMetrics.density).toInt() }
+        var startRawY = 0f
+        var startPanelY = 0
+        dragHandle.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    startRawY = event.rawY
+                    startPanelY = params.y
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val screenHeight = resources.displayMetrics.heightPixels
+                    val panelHeight = layout.height.coerceAtLeast(1)
+                    val newY = startPanelY + (event.rawY - startRawY).toInt()
+                    params.y = newY.coerceIn(0, (screenHeight - panelHeight).coerceAtLeast(0))
+                    manager.updateViewLayout(layout, params)
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> true
+                else -> false
+            }
+        }
         val toggle = Button(this).apply {
             text = "小さくする"
             setOnClickListener {
@@ -138,14 +173,8 @@ class ChromeAssistService : AccessibilityService() {
                 text = if (visible) "展開" else "小さくする"
             }
         }
-        layout.addView(status); layout.addView(objective); layout.addView(suggest); layout.addView(accept); layout.addView(manual); layout.addView(fill); layout.addView(scroll); layout.addView(up); layout.addView(back); layout.addView(auto); layout.addView(stop); layout.addView(xInput); layout.addView(yInput); layout.addView(tap); layout.addView(home); layout.addView(toggle)
-        manager.addView(layout, WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-            PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP; y = (48 * resources.displayMetrics.density).toInt() })
+        layout.addView(dragHandle); layout.addView(status); layout.addView(objective); layout.addView(suggest); layout.addView(accept); layout.addView(manual); layout.addView(fill); layout.addView(scroll); layout.addView(up); layout.addView(back); layout.addView(auto); layout.addView(stop); layout.addView(xInput); layout.addView(yInput); layout.addView(tap); layout.addView(home); layout.addView(toggle)
+        manager.addView(layout, params)
         panel = layout
     }
 
