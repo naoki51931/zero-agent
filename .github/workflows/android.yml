@@ -10,7 +10,6 @@ on:
 permissions:
   contents: write
 
-# Serialize release updates; cancel obsolete builds for the same branch.
 concurrency:
   group: zero-agent-android-${{ github.ref }}
   cancel-in-progress: true
@@ -25,14 +24,52 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Build debug APK
+      - name: Build debug APK (CI validation)
         run: gradle :app:assembleDebug
-      - name: Rename APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk zero-agent-debug.apk
-      - uses: actions/upload-artifact@v4
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
         with:
           name: zero-agent-debug
-          path: zero-agent-debug.apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Check signing secrets
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          SIGNING_KEY: ${{ secrets.ZERO_AGENT_KEYSTORE_BASE64 }}
+          SIGNING_PASS: ${{ secrets.ZERO_AGENT_STORE_PASSWORD }}
+          SIGNING_ALIAS: ${{ secrets.ZERO_AGENT_KEY_ALIAS }}
+          SIGNING_KEY_PASS: ${{ secrets.ZERO_AGENT_KEY_PASSWORD }}
+        run: |
+          if [[ -z "$SIGNING_KEY" || -z "$SIGNING_PASS" || -z "$SIGNING_ALIAS" || -z "$SIGNING_KEY_PASS" ]]; then
+            echo "::error::Configure all four ZERO_AGENT signing secrets before publishing updates."
+            exit 1
+          fi
+
+      - name: Restore stable signing key
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          SIGNING_KEY: ${{ secrets.ZERO_AGENT_KEYSTORE_BASE64 }}
+        run: |
+          printf '%s' "$SIGNING_KEY" | base64 --decode > "$RUNNER_TEMP/zero-agent-release.jks"
+          chmod 600 "$RUNNER_TEMP/zero-agent-release.jks"
+
+      - name: Build signed release APK
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          ZERO_AGENT_KEYSTORE_FILE: ${{ runner.temp }}/zero-agent-release.jks
+          ZERO_AGENT_STORE_PASSWORD: ${{ secrets.ZERO_AGENT_STORE_PASSWORD }}
+          ZERO_AGENT_KEY_ALIAS: ${{ secrets.ZERO_AGENT_KEY_ALIAS }}
+          ZERO_AGENT_KEY_PASSWORD: ${{ secrets.ZERO_AGENT_KEY_PASSWORD }}
+        run: gradle :app:assembleRelease
+
+      - name: Verify APK signature
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          cp "$APK" zero-agent-release.apk
+
       - name: Publish rolling release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
@@ -40,5 +77,5 @@ jobs:
         run: |
           git tag -f latest-build
           git push origin refs/tags/latest-build --force
-          gh release view latest-build >/dev/null 2>&1 || gh release create latest-build --title "Zero Agent Latest Build" --notes "Latest debug APK built from main."
-          gh release upload latest-build zero-agent-debug.apk --clobber
+          gh release view latest-build >/dev/null 2>&1 || gh release create latest-build --title "Zero Agent Latest Build" --notes "Signed release APK from main. Preserve the signing key for updates."
+          gh release upload latest-build zero-agent-release.apk --clobber
