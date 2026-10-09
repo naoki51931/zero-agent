@@ -2,6 +2,10 @@ package com.zeroagent.app
 
 import android.accessibilityservice.AccessibilityService
 import android.graphics.PixelFormat
+import android.graphics.Path
+import android.accessibilityservice.GestureDescription
+import kotlinx.coroutines.delay
+import android.widget.CheckBox
 import android.os.Bundle
 import android.content.Intent
 import android.net.Uri
@@ -29,6 +33,12 @@ class ChromeAssistService : AccessibilityService() {
     private var message: TextView? = null
     private var approve: Button? = null
     private var pending = false
+    private var autoRunning = false
+    private var runToken = 0
+    private var stepsRemaining = 0
+    private var runGoal = ""
+    private var runKey = ""
+    private var runModel = ""
     private var nodes = emptyList<AccessibilityNodeInfo>()
     private var proposedIndex: Int? = null
     private var proposedAction: BrowserAction? = null
@@ -59,7 +69,47 @@ class ChromeAssistService : AccessibilityService() {
         val fill = Button(this).apply { text = "選択中の入力欄に文字を入力"; setOnClickListener { fillFocused() } }
         val back = Button(this).apply { text = "戻る"; setOnClickListener { proposedIndex = null; approve?.isEnabled = false; performGlobalAction(GLOBAL_ACTION_BACK) } }
         val up = Button(this).apply { text = "上へスクロール"; setOnClickListener { scrollChrome(false) } }
-        val stop = Button(this).apply { text = "提案を破棄"; setOnClickListener { proposedIndex = null; proposedAction = null; approve?.isEnabled = false; message?.text = "停止しました" } }
+        val auto = Button(this).apply {
+            text = "安全な操作を最大5回連続実行"
+            setOnClickListener {
+                if (autoRunning) return@setOnClickListener
+                val settings = LocalSettings(this@ChromeAssistService)
+                runKey = settings.get("apiKey")
+                runModel = settings.get("model")
+                runGoal = objectiveInput?.text?.toString()?.take(500).orEmpty().ifBlank { settings.get("objective") }
+                if (runKey.isBlank() || runModel.isBlank()) { message?.text = "APIキーとモデルを設定してください"; return@setOnClickListener }
+                autoRunning = true
+                stepsRemaining = 5
+                runToken++
+                analyze(true, runToken)
+            }
+        }
+        val stop = Button(this).apply { text = "自動操作を停止"; setOnClickListener {
+            autoRunning = false; runToken++; stepsRemaining = 0
+            proposedIndex = null; proposedAction = null; approve?.isEnabled = false
+            message?.text = "停止しました"
+        } }
+        val xInput = EditText(this).apply { hint = "X座標（px）"; inputType = InputType.TYPE_CLASS_NUMBER; setSingleLine(true) }
+        val yInput = EditText(this).apply { hint = "Y座標（px）"; inputType = InputType.TYPE_CLASS_NUMBER; setSingleLine(true) }
+        val tap = Button(this).apply { text = "指定座標をタップ（手動）"; setOnClickListener {
+            val root = rootInActiveWindow
+            if (root?.packageName?.toString() != "com.android.chrome") {
+                message?.text = "Chromeを開いてください"
+            } else {
+                val x = xInput.text.toString().toIntOrNull()
+                val y = yInput.text.toString().toIntOrNull()
+                val metrics = resources.displayMetrics
+                if (x == null || y == null || x !in 0 until metrics.widthPixels || y !in 0 until metrics.heightPixels) {
+                    message?.text = "画面内のX/Y座標を入力してください"
+                } else {
+                    val path = Path().apply { moveTo(x.toFloat(), y.toFloat()) }
+                    val gesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, 80)).build()
+                    dispatchGesture(gesture, null, null)
+                    message?.text = "指定座標にタップを送信しました"
+                }
+            }
+            root?.recycle()
+        } }
         approve = accept
         val scroll = Button(this).apply { text = "Chromeを下へスクロール"; setOnClickListener { scrollChrome() } }
         val toggle = Button(this).apply {
@@ -75,11 +125,15 @@ class ChromeAssistService : AccessibilityService() {
                 back.visibility = suggest.visibility
                 up.visibility = suggest.visibility
                 stop.visibility = suggest.visibility
+                auto.visibility = suggest.visibility
+                xInput.visibility = suggest.visibility
+                yInput.visibility = suggest.visibility
+                tap.visibility = suggest.visibility
                 status.visibility = suggest.visibility
                 text = if (visible) "展開" else "小さくする"
             }
         }
-        layout.addView(status); layout.addView(objective); layout.addView(suggest); layout.addView(accept); layout.addView(manual); layout.addView(fill); layout.addView(scroll); layout.addView(up); layout.addView(back); layout.addView(stop); layout.addView(toggle)
+        layout.addView(status); layout.addView(objective); layout.addView(suggest); layout.addView(accept); layout.addView(manual); layout.addView(fill); layout.addView(scroll); layout.addView(up); layout.addView(back); layout.addView(auto); layout.addView(stop); layout.addView(xInput); layout.addView(yInput); layout.addView(tap); layout.addView(toggle)
         manager.addView(layout, WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -97,7 +151,7 @@ class ChromeAssistService : AccessibilityService() {
         }
     }
 
-    private fun analyze() {
+    private fun analyze(automatic: Boolean = false, token: Int = runToken) {
         if (pending) return
         proposedAction = null
         proposedIndex = null
@@ -125,7 +179,7 @@ class ChromeAssistService : AccessibilityService() {
         visit(root, 0)
         root.recycle()
         nodes = found
-        if (found.isEmpty()) { message?.text = "読み取れる操作対象がありません"; return }
+        if (found.isEmpty()) { message?.text = "読み取れる操作対象がありません"; if (automatic) autoRunning = false; return }
         val inventory = JSONArray()
         found.forEachIndexed { i, node ->
             inventory.put(JSONObject().put("id", i).put("editable", node.isEditable).put("clickable", node.isClickable).put("text",
@@ -134,24 +188,36 @@ class ChromeAssistService : AccessibilityService() {
         val settings = LocalSettings(this)
         val key = settings.get("apiKey")
         val model = settings.get("model")
-        if (key.isBlank() || model.isBlank()) { message?.text = "アプリでAPIキーとモデルを設定してください"; return }
+        if (key.isBlank() || model.isBlank()) { message?.text = "アプリでAPIキーとモデルを設定してください"; if (automatic) autoRunning = false; return }
         message?.text = "画面の文字とボタンをAIで確認中…"
         pending = true
         scope.launch {
             try {
-                val goal = objectiveInput?.text?.toString()?.take(500).orEmpty().ifBlank { settings.get("objective") }
-                val action = BrowserAgent.suggest(key, model,
+                val goal = if (automatic) runGoal else objectiveInput?.text?.toString()?.take(500).orEmpty().ifBlank { settings.get("objective") }
+                val action = BrowserAgent.suggest(if (automatic) runKey else key, if (automatic) runModel else model,
                     "目標: $goal。Chrome画面の候補から安全なクリックまたは入力欄への入力を一つ選んでください。入力が必要な場合は目標に明示された一般的な検索語だけを使ってください。",
                     inventory.toString())
+                if (automatic && (!autoRunning || token != runToken)) return@launch
                 val index = Regex("""\[data-za-id="([0-9]+)"\]""")
                     .matchEntire(action.selector)?.groupValues?.get(1)?.toIntOrNull()
                 if (action.type in listOf("click", "fill") && index != null && index in nodes.indices && (action.type != "fill" || (nodes[index].isEditable && action.value.length <= 300))) {
                     proposedAction = action
                     proposedIndex = index
                     message?.text = "AI提案: ${action.explanation}\n操作: ${action.type} / 対象: ${nodes[index].text ?: nodes[index].contentDescription}\n入力: ${if (action.type == "fill") action.value else "なし"}"
-                    approve?.isEnabled = true
-                } else message?.text = "安全にクリックできる候補はありません"
-            } catch (e: Exception) { message?.text = "解析エラー: ${e.message?.take(120)}" }
+                    approve?.isEnabled = !automatic
+                    if (automatic) {
+                        delay(650)
+                        if (autoRunning && token == runToken) {
+                            val succeeded = clickApproved(true)
+                            stepsRemaining--
+                            if (succeeded && stepsRemaining > 0 && autoRunning) {
+                                delay(1100)
+                                if (token == runToken) analyze(true, token)
+                            } else { autoRunning = false; message?.append("\\n連続操作を終了しました") }
+                        }
+                    }
+                } else { message?.text = "安全に操作できる候補はありません"; if (automatic) autoRunning = false }
+            } catch (e: Exception) { if (!automatic || token == runToken) message?.text = "解析エラー: ${e.message?.take(120)}"; if (automatic) autoRunning = false }
             finally { pending = false }
         }
     }
@@ -205,13 +271,13 @@ class ChromeAssistService : AccessibilityService() {
         root.recycle()
     }
 
-    private fun clickApproved() {
-        val index = proposedIndex ?: return
-        val action = proposedAction ?: return
+    private fun clickApproved(automatic: Boolean = false): Boolean {
+        val index = proposedIndex ?: return false
+        val action = proposedAction ?: return false
         proposedIndex = null
         proposedAction = null
         approve?.isEnabled = false
-        val node = nodes.getOrNull(index) ?: return
+        val node = nodes.getOrNull(index) ?: return false
         val root = rootInActiveWindow
         val name = listOfNotNull(node.text?.toString(), node.contentDescription?.toString()).joinToString(" ")
         if (root?.packageName?.toString() == "com.android.chrome" && node.refresh() &&
@@ -221,13 +287,18 @@ class ChromeAssistService : AccessibilityService() {
                 val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, action.value) }
                 node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
             } else if (action.type == "click") node.performAction(AccessibilityNodeInfo.ACTION_CLICK) else false
-            message?.text = if (success) "操作しました。次の操作は再提案してください" else "操作できませんでした"
+            message?.text = if (success) "操作しました。${if (automatic) "次の画面を確認中" else "次の操作は再提案してください"}" else "操作できませんでした"
+            root?.recycle()
+            return success
         } else message?.text = "画面が変わりました。再解析してください"
         root?.recycle()
+        return false
     }
 
     override fun onInterrupt() {}
     override fun onDestroy() {
+        autoRunning = false
+        runToken++
         panel?.let { wm?.removeView(it) }
         nodes.forEach { it.recycle() }
         scope.cancel()
