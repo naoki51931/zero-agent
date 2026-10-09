@@ -42,8 +42,19 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
     var reasoning by remember { mutableStateOf(settings.get("reasoning", "high")) }
     var reasoningMenu by remember { mutableStateOf(false) }
     var objective by remember { mutableStateOf(settings.get("objective", "オリジナルコンテンツを企画し、必要な制作物と配布先を決め、各サービスで実行可能な行動計画を作る")) }
-    var result by remember { mutableStateOf("") }
+    var result by remember { mutableStateOf(settings.get("lastPlan", "")) }
+    var planTitle by remember { mutableStateOf(settings.get("lastPlanTitle", "")) }
+    var planExpanded by remember { mutableStateOf(false) }
     var guideSteps by remember { mutableStateOf<List<String>>(emptyList()) }
+    fun stepsFromPlan(plan: String): List<String> = plan.lines().map { it.trim() }
+        .filter { it.isNotBlank() && (it.matches(Regex("^([0-9]+[.．)、]|[-•]).*")) || it.startsWith("ステップ") || it.startsWith("手順")) }
+        .take(12).ifEmpty { plan.split("\\n\\n").map { it.trim() }.filter { it.isNotBlank() }.take(8) }
+    fun titleFromPlan(plan: String, goal: String): String {
+        val candidate = plan.lines().map { it.trim().trimStart('#', ' ', '*') }
+            .firstOrNull { it.isNotBlank() && !it.matches(Regex("^[0-9]+[.．)、].*")) }
+            .orEmpty().ifBlank { goal }
+        return candidate.replace(Regex("^[【「『]|[】」』]$"), "").take(45)
+    }
     var guideMessage by remember { mutableStateOf("") }
     var browserOpen by remember { mutableStateOf(false) }
     var address by remember { mutableStateOf(wallet.getReceiveAddress() ?: "未作成") }
@@ -70,6 +81,9 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
     LaunchedEffect(model) { settings.put("model", model) }
     LaunchedEffect(reasoning) { settings.put("reasoning", reasoning) }
     LaunchedEffect(objective) { settings.put("objective", objective) }
+    LaunchedEffect(result) { settings.put("lastPlan", result) }
+    LaunchedEffect(planTitle) { settings.put("lastPlanTitle", planTitle) }
+    LaunchedEffect(Unit) { if (result.isNotBlank()) guideSteps = stepsFromPlan(result) }
 
     LaunchedEffect(Unit) { loadModels() }
 
@@ -130,15 +144,24 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
                 Text("使用モデル: ${model.ifBlank { "未選択" }}")
                 OutlinedTextField(value = objective, onValueChange = { objective = it }, label = { Text("目的") }, modifier = Modifier.fillMaxWidth())
                 Button(modifier = Modifier.fillMaxWidth().height(64.dp), enabled = status != "PLANNING" && apiKey.isNotBlank() && model.isNotBlank(), onClick = {
-                    scope.launch { status = "PLANNING"; result = ""; try { result = openRouter.createPlan(apiKey, model, objective, reasoning); guideSteps = result.lines().map { it.trim() }.filter { it.isNotBlank() && (it.matches(Regex("^([0-9]+[.．)、]|[-•]).*")) || it.startsWith("ステップ") || it.startsWith("手順")) }.take(12).ifEmpty { result.split("\\n\\n").map { it.trim() }.filter { it.isNotBlank() }.take(8) }; status = "PLAN READY"; guideMessage = "Chromeを開き、次の操作を吹き出しで案内できます" } catch (e: Exception) { result = e.message ?: "エラー"; status = "FAILED" } }
+                    scope.launch { status = "PLANNING"; try { result = openRouter.createPlan(apiKey, model, objective, reasoning); planTitle = titleFromPlan(result, objective); guideSteps = stepsFromPlan(result); planExpanded = true; status = "PLAN READY"; guideMessage = "Chromeを開き、次の操作を吹き出しで案内できます" } catch (e: Exception) { result = e.message ?: "エラー"; status = "FAILED" } }
                 }) { Text("企画生成・拡散案を作る") }
-                if (result.isNotBlank()) { Text("生成結果", style = MaterialTheme.typography.titleMedium); Text(result) }
-                if (guideSteps.isNotEmpty()) {
-                    Button(onClick = { browserOpen = true }, modifier = Modifier.fillMaxWidth()) {
-                        Text("アプリ内ブラウザで操作案内")
+                if (result.isNotBlank()) {
+                    ElevatedCard(onClick = { planExpanded = !planExpanded }, modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(16.dp)) {
+                            Text(planTitle.ifBlank { "生成した企画" }, style = MaterialTheme.typography.titleMedium)
+                            Text(if (planExpanded) "タップして閉じる" else "タップして提案とブラウザ操作を開く", style = MaterialTheme.typography.bodySmall)
+                        }
                     }
-                    Text(guideMessage)
+                    if (planExpanded) {
+                        Text("AIの提案", style = MaterialTheme.typography.titleMedium)
+                        Text(result)
+                        Button(onClick = { browserOpen = true }, enabled = guideSteps.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
+                            Text("この企画をアプリ内ブラウザで進める")
+                        }
+                    }
                 }
+                if (guideMessage.isNotBlank()) Text(guideMessage)
 
                 Text("設定は端末内に暗号化保存し、次回起動時に復元します。モデル一覧は起動時に更新します。")
             }
