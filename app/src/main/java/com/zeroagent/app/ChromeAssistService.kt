@@ -112,6 +112,10 @@ class ChromeAssistService : AccessibilityService() {
         } }
         approve = accept
         val scroll = Button(this).apply { text = "Chromeを下へスクロール"; setOnClickListener { scrollChrome() } }
+        val home = Button(this).apply { text = "ホームへ戻る"; setOnClickListener {
+            autoRunning = false; runToken++; stepsRemaining = 0
+            performGlobalAction(GLOBAL_ACTION_HOME)
+        } }
         val toggle = Button(this).apply {
             text = "小さくする"
             setOnClickListener {
@@ -125,6 +129,7 @@ class ChromeAssistService : AccessibilityService() {
                 back.visibility = suggest.visibility
                 up.visibility = suggest.visibility
                 stop.visibility = suggest.visibility
+                home.visibility = suggest.visibility
                 auto.visibility = suggest.visibility
                 xInput.visibility = suggest.visibility
                 yInput.visibility = suggest.visibility
@@ -133,14 +138,14 @@ class ChromeAssistService : AccessibilityService() {
                 text = if (visible) "展開" else "小さくする"
             }
         }
-        layout.addView(status); layout.addView(objective); layout.addView(suggest); layout.addView(accept); layout.addView(manual); layout.addView(fill); layout.addView(scroll); layout.addView(up); layout.addView(back); layout.addView(auto); layout.addView(stop); layout.addView(xInput); layout.addView(yInput); layout.addView(tap); layout.addView(toggle)
+        layout.addView(status); layout.addView(objective); layout.addView(suggest); layout.addView(accept); layout.addView(manual); layout.addView(fill); layout.addView(scroll); layout.addView(up); layout.addView(back); layout.addView(auto); layout.addView(stop); layout.addView(xInput); layout.addView(yInput); layout.addView(tap); layout.addView(home); layout.addView(toggle)
         manager.addView(layout, WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.BOTTOM })
+        ).apply { gravity = Gravity.TOP; y = (48 * resources.displayMetrics.density).toInt() })
         panel = layout
     }
 
