@@ -84,7 +84,7 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
 
     MaterialTheme {
         if (browserOpen && guideSteps.isNotEmpty()) {
-            GuidedBrowser(guideSteps) { browserOpen = false }
+            GuidedBrowser(guideSteps, apiKey, model) { browserOpen = false }
         } else Scaffold { padding ->
             Column(Modifier.padding(padding).padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("ZERO AGENT", style = MaterialTheme.typography.headlineLarge)
