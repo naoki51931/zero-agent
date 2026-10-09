@@ -14,6 +14,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import java.net.URLEncoder
 
 private val inventoryScript = """
 (function(){
@@ -28,10 +29,12 @@ private val inventoryScript = """
 
 /** Embedded WebView: AI proposes one action; user approves before local execution. */
 @Composable
-fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, onClose: () -> Unit) {
+fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective: String, onClose: () -> Unit) {
     val scope = rememberCoroutineScope()
     var index by remember { mutableIntStateOf(0) }
-    var input by remember { mutableStateOf("https://www.google.com/") }
+    val searchTerms = objective.trim().ifBlank { steps.firstOrNull().orEmpty() }.take(140)
+    val startUrl = remember(searchTerms) { "https://www.google.com/search?q=" + URLEncoder.encode(searchTerms, "UTF-8") }
+    var input by remember(startUrl) { mutableStateOf(startUrl) }
     var webView by remember { mutableStateOf<WebView?>(null) }
     var proposal by remember { mutableStateOf<BrowserAction?>(null) }
     var message by remember { mutableStateOf("") }
@@ -77,7 +80,8 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, onClose: (
                     Text("ZERO AGENT ${index + 1}/${steps.size}", style = MaterialTheme.typography.titleMedium)
                     TextButton(onClick = { guideVisible = false }) { Text("隠す") }
                 }
-                Text(steps.getOrElse(index) { "手順はありません" })
+                Text("目標: $objective", style = MaterialTheme.typography.bodySmall)
+                Text(steps.getOrElse(index) { "目標に必要な情報を調べる" })
                 Button(modifier = Modifier.fillMaxWidth(), enabled = !busy && apiKey.isNotBlank() && model.isNotBlank(), onClick = {
                     val web = webView ?: return@Button
                     busy = true
@@ -88,7 +92,7 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, onClose: (
                             val inventory = org.json.JSONTokener(encoded).nextValue() as String
                             scope.launch {
                                 try {
-                                    val action = BrowserAgent.suggest(apiKey, model, steps.getOrElse(index) { "" }, inventory)
+                                    val action = BrowserAgent.suggest(apiKey, model, "最終目標: $objective\\n現在の作業: ${steps.getOrElse(index) { "" }}", inventory)
                                     proposal = if (action.type == "none") null else action
                                     message = if (action.type == "none") "安全に自動操作できる対象が見つかりません" else "操作内容を確認して実行してください"
                                 } catch (e: Exception) { message = e.message ?: "解析エラー" }
