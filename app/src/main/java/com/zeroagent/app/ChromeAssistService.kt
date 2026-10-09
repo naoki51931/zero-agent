@@ -130,48 +130,62 @@ class ChromeAssistService : AccessibilityService() {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.TOP; y = (48 * resources.displayMetrics.density).toInt() }
+        val controls = listOf(status, objective, suggest, accept, manual, fill, scroll, up, back, auto, stop, xInput, yInput, tap, home)
+        var compact = false
+        fun setCompact(value: Boolean) {
+            compact = value
+            controls.forEach { it.visibility = if (value) android.view.View.GONE else android.view.View.VISIBLE }
+            params.width = if (value) (190 * resources.displayMetrics.density).toInt() else WindowManager.LayoutParams.MATCH_PARENT
+            dragHandle.text = if (value) "☰ 移動 / タップで展開" else "☰ ドラッグで縮小・移動"
+            if (layout.isAttachedToWindow) manager.updateViewLayout(layout, params)
+        }
+        var startRawX = 0f
         var startRawY = 0f
+        var startPanelX = 0
         var startPanelY = 0
+        var moved = false
         dragHandle.setOnTouchListener { _, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    startRawX = event.rawX
                     startRawY = event.rawY
+                    startPanelX = params.x
                     startPanelY = params.y
+                    moved = false
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val screenHeight = resources.displayMetrics.heightPixels
-                    val panelHeight = layout.height.coerceAtLeast(1)
-                    val newY = startPanelY + (event.rawY - startRawY).toInt()
-                    params.y = newY.coerceIn(0, (screenHeight - panelHeight).coerceAtLeast(0))
-                    manager.updateViewLayout(layout, params)
+                    val dx = event.rawX - startRawX
+                    val dy = event.rawY - startRawY
+                    if (!moved && (kotlin.math.abs(dx) > 12 || kotlin.math.abs(dy) > 12)) {
+                        moved = true
+                        if (!compact) setCompact(true)
+                        startPanelX = params.x
+                        startPanelY = params.y
+                        startRawX = event.rawX
+                        startRawY = event.rawY
+                    }
+                    if (moved) {
+                        val width = if (compact) params.width else resources.displayMetrics.widthPixels
+                        val maxX = (resources.displayMetrics.widthPixels - width).coerceAtLeast(0)
+                        val maxY = (resources.displayMetrics.heightPixels - layout.height).coerceAtLeast(0)
+                        params.x = (startPanelX + (event.rawX - startRawX).toInt()).coerceIn(0, maxX)
+                        params.y = (startPanelY + (event.rawY - startRawY).toInt()).coerceIn(0, maxY)
+                        manager.updateViewLayout(layout, params)
+                    }
                     true
                 }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> true
+                MotionEvent.ACTION_UP -> {
+                    if (!moved) setCompact(!compact)
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> true
                 else -> false
             }
         }
         val toggle = Button(this).apply {
             text = "小さくする"
-            setOnClickListener {
-                val visible = suggest.visibility == android.view.View.VISIBLE
-                suggest.visibility = if (visible) android.view.View.GONE else android.view.View.VISIBLE
-                accept.visibility = suggest.visibility
-                scroll.visibility = suggest.visibility
-                objective.visibility = suggest.visibility
-                manual.visibility = suggest.visibility
-                fill.visibility = suggest.visibility
-                back.visibility = suggest.visibility
-                up.visibility = suggest.visibility
-                stop.visibility = suggest.visibility
-                home.visibility = suggest.visibility
-                auto.visibility = suggest.visibility
-                xInput.visibility = suggest.visibility
-                yInput.visibility = suggest.visibility
-                tap.visibility = suggest.visibility
-                status.visibility = suggest.visibility
-                text = if (visible) "展開" else "小さくする"
-            }
+            setOnClickListener { setCompact(true) }
         }
         layout.addView(dragHandle); layout.addView(status); layout.addView(objective); layout.addView(suggest); layout.addView(accept); layout.addView(manual); layout.addView(fill); layout.addView(scroll); layout.addView(up); layout.addView(back); layout.addView(auto); layout.addView(stop); layout.addView(xInput); layout.addView(yInput); layout.addView(tap); layout.addView(home); layout.addView(toggle)
         manager.addView(layout, params)
