@@ -190,6 +190,7 @@ class ChromeAssistService : AccessibilityService() {
         layout.addView(dragHandle); layout.addView(status); layout.addView(objective); layout.addView(suggest); layout.addView(accept); layout.addView(manual); layout.addView(fill); layout.addView(scroll); layout.addView(up); layout.addView(back); layout.addView(auto); layout.addView(stop); layout.addView(xInput); layout.addView(yInput); layout.addView(tap); layout.addView(home); layout.addView(toggle)
         manager.addView(layout, params)
         panel = layout
+        setCompact(true)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
