@@ -10,6 +10,11 @@ on:
 permissions:
   contents: write
 
+# Serialize release updates; cancel obsolete builds for the same branch.
+concurrency:
+  group: zero-agent-android-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
