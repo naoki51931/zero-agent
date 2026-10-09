@@ -18,7 +18,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.json.JSONObject
-import java.net.URLEncoder
 
 private val inventoryScript = """
 (function(){
@@ -41,8 +40,13 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(safeUrl)).addCategory(Intent.CATEGORY_BROWSABLE))
     }
     var index by remember { mutableIntStateOf(0) }
-    val searchTerms = objective.trim().ifBlank { steps.firstOrNull().orEmpty() }.take(140)
-    val startUrl = remember(searchTerms) { "https://www.google.com/search?q=" + URLEncoder.encode(searchTerms, "UTF-8") }
+    val startUrl = remember(objective) {
+        when {
+            objective.contains("seaart", ignoreCase = true) -> "https://www.seaart.ai/"
+            objective.contains("pixai", ignoreCase = true) -> "https://pixai.art/"
+            else -> "https://www.google.com/"
+        }
+    }
     var input by remember(startUrl) { mutableStateOf(startUrl) }
     var lastWebsiteUrl by remember { mutableStateOf(startUrl) }
     var webView by remember { mutableStateOf<WebView?>(null) }
