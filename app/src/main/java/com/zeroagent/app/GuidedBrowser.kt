@@ -44,6 +44,7 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
     val searchTerms = objective.trim().ifBlank { steps.firstOrNull().orEmpty() }.take(140)
     val startUrl = remember(searchTerms) { "https://www.google.com/search?q=" + URLEncoder.encode(searchTerms, "UTF-8") }
     var input by remember(startUrl) { mutableStateOf(startUrl) }
+    var lastWebsiteUrl by remember { mutableStateOf(startUrl) }
     var webView by remember { mutableStateOf<WebView?>(null) }
     var proposal by remember { mutableStateOf<BrowserAction?>(null) }
     var message by remember { mutableStateOf("") }
@@ -63,7 +64,7 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
                 }
             }, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("開く") }
         }
-        TextButton(onClick = { openInBrowser(webView?.url ?: input) }, modifier = Modifier.fillMaxWidth()) {
+        TextButton(onClick = { openInBrowser(lastWebsiteUrl) }, modifier = Modifier.fillMaxWidth()) {
             Text("このページをChromeなどのブラウザで開く（ログイン用）")
         }
         Box(Modifier.weight(1f)) {
@@ -75,14 +76,14 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
                         override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                             val uri = request?.url ?: return false
                             if (uri.scheme == "https" && uri.host == "accounts.google.com") {
-                                openInBrowser(uri.toString())
-                                message = "Googleログインは安全のため外部ブラウザで開きました。認証後は戻ってください。"
+                                openInBrowser(lastWebsiteUrl)
+                                message = "Chromeでログイン元サイトを開きました。Chrome内でログインしてください。WebViewには認証状態が引き継がれません。"
                                 return true
                             }
                             return false
                         }
                         override fun onPageFinished(view: WebView?, pageUrl: String?) {
-                            if (pageUrl != null) { input = pageUrl; proposal = null }
+                            if (pageUrl != null) { input = pageUrl; proposal = null; if (Uri.parse(pageUrl).host != "accounts.google.com" && pageUrl.startsWith("https://")) lastWebsiteUrl = pageUrl }
                         }
                     }
                     loadUrl(input)
