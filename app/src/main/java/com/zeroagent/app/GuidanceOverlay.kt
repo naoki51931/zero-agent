@@ -41,8 +41,8 @@ object GuidanceOverlay {
         val next = Button(app).apply { text = "次へ" }
         val close = Button(app).apply { text = "閉じる"; setOnClickListener { dismiss() } }
         fun update() {
-            text.text = "ZERO AGENT  ${index + 1}/${steps.size}\n${steps[index]}"
-            next.text = if (index == steps.lastIndex) "完了" else "次へ"
+            text.setText("ZERO AGENT  ${index + 1}/${steps.size}\n${steps[index]}")
+            next.setText(if (index == steps.lastIndex) "完了" else "次へ")
         }
         next.setOnClickListener {
             if (index == steps.lastIndex) dismiss() else { index++; update() }
