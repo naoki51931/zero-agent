@@ -159,6 +159,7 @@ class ChromeAssistService : AccessibilityService() {
         val root = rootInActiveWindow
         if (root?.packageName?.toString() != "com.android.chrome") {
             message?.text = "Chromeを開いてから実行してください"
+            if (automatic) autoRunning = false
             return
         }
         nodes.forEach { it.recycle() }
@@ -212,7 +213,10 @@ class ChromeAssistService : AccessibilityService() {
                             stepsRemaining--
                             if (succeeded && stepsRemaining > 0 && autoRunning) {
                                 delay(1100)
-                                if (token == runToken) analyze(true, token)
+                                if (token == runToken) {
+                                    pending = false
+                                    analyze(true, token)
+                                }
                             } else { autoRunning = false; message?.append("\\n連続操作を終了しました") }
                         }
                     }
