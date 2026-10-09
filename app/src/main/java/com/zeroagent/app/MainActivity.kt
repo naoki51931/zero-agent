@@ -1,10 +1,6 @@
 package com.zeroagent.app
 
 import android.os.Bundle
-import android.content.Intent
-import android.net.Uri
-import android.provider.Settings
-import androidx.compose.ui.platform.LocalContext
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
@@ -31,7 +27,6 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
     val openRouter = remember { OpenRouterClient() }
     val providers = listOf("OpenAI", "Gemini", "Claude", "Grok", "その他")
     val reasoningOptions = listOf("low", "medium", "high")
@@ -50,6 +45,7 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
     var result by remember { mutableStateOf("") }
     var guideSteps by remember { mutableStateOf<List<String>>(emptyList()) }
     var guideMessage by remember { mutableStateOf("") }
+    var browserOpen by remember { mutableStateOf(false) }
     var address by remember { mutableStateOf(wallet.getReceiveAddress() ?: "未作成") }
     var balance by remember { mutableLongStateOf(wallet.getBalanceSats()) }
 
@@ -87,7 +83,9 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
     val filteredModels = models.filter { matchesProvider(it.id) }
 
     MaterialTheme {
-        Scaffold { padding ->
+        if (browserOpen && guideSteps.isNotEmpty()) {
+            GuidedBrowser(guideSteps) { browserOpen = false }
+        } else Scaffold { padding ->
             Column(Modifier.padding(padding).padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("ZERO AGENT", style = MaterialTheme.typography.headlineLarge)
                 Text("Creator Agent: $status")
@@ -136,22 +134,9 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
                 }) { Text("企画生成・拡散案を作る") }
                 if (result.isNotBlank()) { Text("生成結果", style = MaterialTheme.typography.titleMedium); Text(result) }
                 if (guideSteps.isNotEmpty()) {
-                    Button(onClick = {
-                        if (!Settings.canDrawOverlays(context)) {
-                            guideMessage = "「他のアプリの上に表示」を許可してから、もう一度押してください"
-                            context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + context.packageName)))
-                        } else {
-                            val chrome = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/")).apply {
-                                setPackage("com.android.chrome")
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            }
-                            try { context.startActivity(chrome) } catch (_: Exception) {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/")))
-                            }
-                            GuidanceOverlay.show(context, guideSteps)
-                            guideMessage = "Chrome上に手順を表示しました。「次へ」で進めます"
-                        }
-                    }, modifier = Modifier.fillMaxWidth()) { Text("Chromeを開いて吹き出しで案内") }
+                    Button(onClick = { browserOpen = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text("アプリ内ブラウザで操作案内")
+                    }
                     Text(guideMessage)
                 }
 
