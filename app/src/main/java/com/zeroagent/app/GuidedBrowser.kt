@@ -1,5 +1,9 @@
 package com.zeroagent.app
 
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.ui.platform.LocalContext
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
@@ -31,6 +35,11 @@ private val inventoryScript = """
 @Composable
 fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective: String, onClose: () -> Unit) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    fun openInBrowser(url: String) {
+        val safeUrl = url.takeIf { it.startsWith("https://") || it.startsWith("http://") } ?: return
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(safeUrl)).addCategory(Intent.CATEGORY_BROWSABLE))
+    }
     var index by remember { mutableIntStateOf(0) }
     val searchTerms = objective.trim().ifBlank { steps.firstOrNull().orEmpty() }.take(140)
     val startUrl = remember(searchTerms) { "https://www.google.com/search?q=" + URLEncoder.encode(searchTerms, "UTF-8") }
@@ -54,12 +63,24 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
                 }
             }, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("開く") }
         }
+        TextButton(onClick = { openInBrowser(webView?.url ?: input) }, modifier = Modifier.fillMaxWidth()) {
+            Text("このページをChromeなどのブラウザで開く（ログイン用）")
+        }
         Box(Modifier.weight(1f)) {
             AndroidView(factory = { ctx ->
                 WebView(ctx).apply {
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
                     webViewClient = object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                            val uri = request?.url ?: return false
+                            if (uri.scheme == "https" && uri.host == "accounts.google.com") {
+                                openInBrowser(uri.toString())
+                                message = "Googleログインは安全のため外部ブラウザで開きました。認証後は戻ってください。"
+                                return true
+                            }
+                            return false
+                        }
                         override fun onPageFinished(view: WebView?, pageUrl: String?) {
                             if (pageUrl != null) { input = pageUrl; proposal = null }
                         }
