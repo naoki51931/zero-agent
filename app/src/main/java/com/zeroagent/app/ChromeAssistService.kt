@@ -23,6 +23,7 @@ class ChromeAssistService : AccessibilityService() {
     private var panel: LinearLayout? = null
     private var message: TextView? = null
     private var approve: Button? = null
+    private var pending = false
     private var nodes = emptyList<AccessibilityNodeInfo>()
     private var proposedIndex: Int? = null
     private val protectedWords = Regex("login|sign.in|password|checkout|purchase|payment|delete|send|publish|submit|consent|captcha|ログイン|認証|購入|支払|削除|送信|投稿|同意|パスワード", RegexOption.IGNORE_CASE)
@@ -40,17 +41,19 @@ class ChromeAssistService : AccessibilityService() {
         val suggest = Button(this).apply { text = "AIに次のクリックを提案させる"; setOnClickListener { analyze() } }
         val accept = Button(this).apply { text = "承認してクリック"; isEnabled = false; setOnClickListener { clickApproved() } }
         approve = accept
+        val scroll = Button(this).apply { text = "Chromeを下へスクロール"; setOnClickListener { scrollChrome() } }
         val toggle = Button(this).apply {
             text = "小さくする"
             setOnClickListener {
                 val visible = suggest.visibility == android.view.View.VISIBLE
                 suggest.visibility = if (visible) android.view.View.GONE else android.view.View.VISIBLE
                 accept.visibility = suggest.visibility
+                scroll.visibility = suggest.visibility
                 status.visibility = suggest.visibility
                 text = if (visible) "展開" else "小さくする"
             }
         }
-        layout.addView(status); layout.addView(suggest); layout.addView(accept); layout.addView(toggle)
+        layout.addView(status); layout.addView(suggest); layout.addView(accept); layout.addView(scroll); layout.addView(toggle)
         manager.addView(layout, WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -69,6 +72,7 @@ class ChromeAssistService : AccessibilityService() {
     }
 
     private fun analyze() {
+        if (pending) return
         proposedIndex = null
         approve?.isEnabled = false
         val root = rootInActiveWindow
@@ -105,6 +109,7 @@ class ChromeAssistService : AccessibilityService() {
         val model = settings.get("model")
         if (key.isBlank() || model.isBlank()) { message?.text = "アプリでAPIキーとモデルを設定してください"; return }
         message?.text = "画面の文字とボタンをAIで確認中…"
+        pending = true
         scope.launch {
             try {
                 val goal = settings.get("objective")
@@ -119,7 +124,32 @@ class ChromeAssistService : AccessibilityService() {
                     approve?.isEnabled = true
                 } else message?.text = "安全にクリックできる候補はありません"
             } catch (e: Exception) { message?.text = "解析エラー: ${e.message?.take(120)}" }
+            finally { pending = false }
         }
+    }
+
+    private fun scrollChrome() {
+        proposedIndex = null
+        approve?.isEnabled = false
+        val root = rootInActiveWindow
+        if (root?.packageName?.toString() != "com.android.chrome") {
+            message?.text = "Chromeを開いてください"
+            return
+        }
+        fun scroll(node: AccessibilityNodeInfo, depth: Int): Boolean {
+            if (depth > 18) return false
+            if (node.isVisibleToUser && node.isScrollable &&
+                node.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) return true
+            for (i in 0 until node.childCount) {
+                val child = node.getChild(i) ?: continue
+                val done = scroll(child, depth + 1)
+                child.recycle()
+                if (done) return true
+            }
+            return false
+        }
+        message?.text = if (scroll(root, 0)) "スクロールしました。再解析してください" else "スクロール対象がありません"
+        root.recycle()
     }
 
     private fun clickApproved() {
