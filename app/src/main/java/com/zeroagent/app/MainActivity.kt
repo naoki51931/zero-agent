@@ -19,29 +19,29 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { ZeroAgentApp(WalletManager(this)) }
+        setContent { ZeroAgentApp(WalletManager(this), LocalSettings(this)) }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ZeroAgentApp(wallet: WalletManager) {
+fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
     val scope = rememberCoroutineScope()
     val openRouter = remember { OpenRouterClient() }
     val providers = listOf("OpenAI", "Gemini", "Claude", "Grok", "その他")
     val reasoningOptions = listOf("low", "medium", "high")
     var status by remember { mutableStateOf("READY") }
-    var mode by remember { mutableStateOf("HYBRID") }
-    var apiKey by remember { mutableStateOf("") }
-    var provider by remember { mutableStateOf("OpenAI") }
+    var mode by remember { mutableStateOf(settings.get("mode", "HYBRID")) }
+    var apiKey by remember { mutableStateOf(settings.get("apiKey", "")) }
+    var provider by remember { mutableStateOf(settings.get("provider", "OpenAI")) }
     var providerMenu by remember { mutableStateOf(false) }
     var models by remember { mutableStateOf<List<OpenRouterModel>>(emptyList()) }
-    var model by remember { mutableStateOf("") }
+    var model by remember { mutableStateOf(settings.get("model", "")) }
     var modelMenu by remember { mutableStateOf(false) }
     var modelLoadMessage by remember { mutableStateOf("モデル一覧を読み込んでいます…") }
-    var reasoning by remember { mutableStateOf("high") }
+    var reasoning by remember { mutableStateOf(settings.get("reasoning", "high")) }
     var reasoningMenu by remember { mutableStateOf(false) }
-    var objective by remember { mutableStateOf("オリジナルコンテンツを企画し、必要な制作物と配布先を決め、各サービスで実行可能な行動計画を作る") }
+    var objective by remember { mutableStateOf(settings.get("objective", "オリジナルコンテンツを企画し、必要な制作物と配布先を決め、各サービスで実行可能な行動計画を作る")) }
     var result by remember { mutableStateOf("") }
     var address by remember { mutableStateOf(wallet.getReceiveAddress() ?: "未作成") }
     var balance by remember { mutableLongStateOf(wallet.getBalanceSats()) }
@@ -59,6 +59,14 @@ fun ZeroAgentApp(wallet: WalletManager) {
             status = "FAILED"
         }
     }
+
+    // Persist selections immediately; restore them on the next app launch.
+    LaunchedEffect(mode) { settings.put("mode", mode) }
+    LaunchedEffect(apiKey) { settings.put("apiKey", apiKey) }
+    LaunchedEffect(provider) { settings.put("provider", provider) }
+    LaunchedEffect(model) { settings.put("model", model) }
+    LaunchedEffect(reasoning) { settings.put("reasoning", reasoning) }
+    LaunchedEffect(objective) { settings.put("objective", objective) }
 
     LaunchedEffect(Unit) { loadModels() }
 
@@ -120,7 +128,7 @@ fun ZeroAgentApp(wallet: WalletManager) {
                     scope.launch { status = "PLANNING"; result = ""; try { result = openRouter.createPlan(apiKey, model, objective, reasoning); status = "PLAN READY" } catch (e: Exception) { result = e.message ?: "エラー"; status = "FAILED" } }
                 }) { Text("企画生成・拡散案を作る") }
                 if (result.isNotBlank()) { Text("生成結果", style = MaterialTheme.typography.titleMedium); Text(result) }
-                Text("モデル一覧は起動時に自動取得します。OpenAI / Gemini / Claude / Grok から選択し、企画生成時だけOpenRouter API Keyを使用します。")
+                Text("設定は端末内に暗号化保存し、次回起動時に復元します。モデル一覧は起動時に更新します。")
             }
         }
     }
