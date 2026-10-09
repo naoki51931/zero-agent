@@ -4,6 +4,9 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.Alignment
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -36,17 +39,17 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, onClose: (
     var guideVisible by remember { mutableStateOf(true) }
     DisposableEffect(Unit) { onDispose { webView?.destroy() } }
     BackHandler { if (webView?.canGoBack() == true) webView?.goBack() else onClose() }
-    Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            Button(onClick = onClose) { Text("戻る") }
+    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            TextButton(onClick = onClose, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("戻る") }
             OutlinedTextField(value = input, onValueChange = { input = it }, singleLine = true, modifier = Modifier.weight(1f), label = { Text("URL") })
-            Button(onClick = {
+            TextButton(onClick = {
                 val target = input.trim()
                 if (target.startsWith("https://") || target.startsWith("http://")) {
                     proposal = null
                     webView?.loadUrl(target)
                 }
-            }) { Text("開く") }
+            }, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("開く") }
         }
         Box(Modifier.weight(1f)) {
             AndroidView(factory = { ctx ->
@@ -68,14 +71,14 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, onClose: (
                 Button(onClick = { guideVisible = true }) { Text("吹き出しを表示") }
             }
         }
-        if (guideVisible) Card(Modifier.fillMaxWidth().padding(8.dp)) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (guideVisible) Card(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp).heightIn(max = 260.dp)) {
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("ZERO AGENT ${index + 1}/${steps.size}", style = MaterialTheme.typography.titleMedium)
                     TextButton(onClick = { guideVisible = false }) { Text("隠す") }
                 }
                 Text(steps.getOrElse(index) { "手順はありません" })
-                Button(enabled = !busy && apiKey.isNotBlank() && model.isNotBlank(), onClick = {
+                Button(modifier = Modifier.fillMaxWidth(), enabled = !busy && apiKey.isNotBlank() && model.isNotBlank(), onClick = {
                     val web = webView ?: return@Button
                     busy = true
                     proposal = null
@@ -96,7 +99,7 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, onClose: (
                 }) { Text(if (busy) "AI解析中…" else "AIに次のクリック・入力を提案させる") }
                 proposal?.let { action ->
                     Text("提案: ${action.explanation}\n操作: ${action.type} ${action.selector}" + if (action.type == "fill") "\n入力: ${action.value.take(150)}" else "")
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = {
                             val payload = JSONObject().put("selector", action.selector).put("value", action.value).toString()
                             val script = """
@@ -125,7 +128,7 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, onClose: (
                     }
                 }
                 if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.bodySmall)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(enabled = index > 0, onClick = { index--; proposal = null }) { Text("前へ") }
                     Button(onClick = { if (index < steps.lastIndex) { index++; proposal = null } else onClose() }) {
                         Text(if (index < steps.lastIndex) "次へ" else "完了")
