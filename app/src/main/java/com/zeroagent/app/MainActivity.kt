@@ -1,6 +1,9 @@
 package com.zeroagent.app
 
 import android.os.Bundle
+import android.content.Intent
+import android.provider.Settings
+import androidx.compose.ui.platform.LocalContext
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
@@ -27,6 +30,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val openRouter = remember { OpenRouterClient() }
     val providers = listOf("OpenAI", "Gemini", "Claude", "Grok", "その他")
     val reasoningOptions = listOf("low", "medium", "high")
@@ -108,6 +112,7 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
         } else Scaffold { padding ->
             Column(Modifier.padding(padding).padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("ZERO AGENT", style = MaterialTheme.typography.headlineLarge)
+                Button(onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }) { Text("Chrome AI操作を有効化（ユーザー補助設定）") }
                 Text("Creator Agent: $status")
                 Text("操作モード: $mode")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
