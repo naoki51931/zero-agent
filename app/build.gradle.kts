@@ -16,6 +16,25 @@ android {
         versionName = "0.1.0"
     }
 
+    signingConfigs {
+        create("stableRelease") {
+            val signingFile = System.getenv("ZERO_AGENT_KEYSTORE_FILE")
+            if (!signingFile.isNullOrBlank()) {
+                storeFile = file(signingFile)
+                storePassword = System.getenv("ZERO_AGENT_STORE_PASSWORD")
+                keyAlias = System.getenv("ZERO_AGENT_KEY_ALIAS")
+                keyPassword = System.getenv("ZERO_AGENT_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            signingConfig = signingConfigs.getByName("stableRelease")
+            isMinifyEnabled = false
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
