@@ -46,9 +46,15 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
     var planTitle by remember { mutableStateOf(settings.get("lastPlanTitle", "")) }
     var planExpanded by remember { mutableStateOf(false) }
     var guideSteps by remember { mutableStateOf<List<String>>(emptyList()) }
-    fun stepsFromPlan(plan: String): List<String> = plan.lines().map { it.trim() }
-        .filter { it.isNotBlank() && (it.matches(Regex("^([0-9]+[.．)、]|[-•]).*")) || it.startsWith("ステップ") || it.startsWith("手順")) }
-        .take(12).ifEmpty { plan.split("\\n\\n").map { it.trim() }.filter { it.isNotBlank() }.take(8) }
+    fun stepsFromPlan(plan: String): List<String> {
+        val lines = plan.lines().map { it.trim() }
+        val numbered = lines.filter { it.matches(Regex("^(?:[0-9]{1,2}[.．)、:]|[-•]\\s+|ステップ[0-9０-９]+).*")) }
+            .map { it.replace(Regex("^[0-9]{1,2}[.．)、:]\\s*"), "").replace(Regex("^[-•]\\s*"), "") }
+            .filter { it.length >= 8 && it != "---" }.take(12)
+        return numbered.ifEmpty {
+            lines.filter { it.length >= 12 && !it.startsWith("#") && it != "---" }.take(8)
+        }.ifEmpty { listOf("目標を確認し、必要な情報を検索する") }
+    }
     fun titleFromPlan(plan: String, goal: String): String {
         val candidate = plan.lines().map { it.trim().trimStart('#', ' ', '*') }
             .firstOrNull { it.isNotBlank() && !it.matches(Regex("^[0-9]+[.．)、].*")) }
@@ -98,7 +104,7 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
 
     MaterialTheme {
         if (browserOpen && guideSteps.isNotEmpty()) {
-            GuidedBrowser(guideSteps, apiKey, model) { browserOpen = false }
+            GuidedBrowser(guideSteps, apiKey, model, objective) { browserOpen = false }
         } else Scaffold { padding ->
             Column(Modifier.padding(padding).padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("ZERO AGENT", style = MaterialTheme.typography.headlineLarge)
