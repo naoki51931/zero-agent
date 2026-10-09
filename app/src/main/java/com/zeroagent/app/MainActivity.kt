@@ -1,6 +1,10 @@
 package com.zeroagent.app
 
 import android.os.Bundle
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import androidx.compose.ui.platform.LocalContext
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
@@ -27,6 +31,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val openRouter = remember { OpenRouterClient() }
     val providers = listOf("OpenAI", "Gemini", "Claude", "Grok", "その他")
     val reasoningOptions = listOf("low", "medium", "high")
@@ -43,6 +48,8 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
     var reasoningMenu by remember { mutableStateOf(false) }
     var objective by remember { mutableStateOf(settings.get("objective", "オリジナルコンテンツを企画し、必要な制作物と配布先を決め、各サービスで実行可能な行動計画を作る")) }
     var result by remember { mutableStateOf("") }
+    var guideSteps by remember { mutableStateOf<List<String>>(emptyList()) }
+    var guideMessage by remember { mutableStateOf("") }
     var address by remember { mutableStateOf(wallet.getReceiveAddress() ?: "未作成") }
     var balance by remember { mutableLongStateOf(wallet.getBalanceSats()) }
 
@@ -125,9 +132,29 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
                 Text("使用モデル: ${model.ifBlank { "未選択" }}")
                 OutlinedTextField(value = objective, onValueChange = { objective = it }, label = { Text("目的") }, modifier = Modifier.fillMaxWidth())
                 Button(modifier = Modifier.fillMaxWidth().height(64.dp), enabled = status != "PLANNING" && apiKey.isNotBlank() && model.isNotBlank(), onClick = {
-                    scope.launch { status = "PLANNING"; result = ""; try { result = openRouter.createPlan(apiKey, model, objective, reasoning); status = "PLAN READY" } catch (e: Exception) { result = e.message ?: "エラー"; status = "FAILED" } }
+                    scope.launch { status = "PLANNING"; result = ""; try { result = openRouter.createPlan(apiKey, model, objective, reasoning); guideSteps = result.lines().map { it.trim() }.filter { it.isNotBlank() && (it.matches(Regex("^([0-9]+[.．)、]|[-•]).*")) || it.startsWith("ステップ") || it.startsWith("手順")) }.take(12).ifEmpty { result.split("\\n\\n").map { it.trim() }.filter { it.isNotBlank() }.take(8) }; status = "PLAN READY"; guideMessage = "Chromeを開き、次の操作を吹き出しで案内できます" } catch (e: Exception) { result = e.message ?: "エラー"; status = "FAILED" } }
                 }) { Text("企画生成・拡散案を作る") }
                 if (result.isNotBlank()) { Text("生成結果", style = MaterialTheme.typography.titleMedium); Text(result) }
+                if (guideSteps.isNotEmpty()) {
+                    Button(onClick = {
+                        if (!Settings.canDrawOverlays(context)) {
+                            guideMessage = "「他のアプリの上に表示」を許可してから、もう一度押してください"
+                            context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + context.packageName)))
+                        } else {
+                            val chrome = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/")).apply {
+                                setPackage("com.android.chrome")
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            try { context.startActivity(chrome) } catch (_: Exception) {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/")))
+                            }
+                            GuidanceOverlay.show(context, guideSteps)
+                            guideMessage = "Chrome上に手順を表示しました。「次へ」で進めます"
+                        }
+                    }, modifier = Modifier.fillMaxWidth()) { Text("Chromeを開いて吹き出しで案内") }
+                    Text(guideMessage)
+                }
+
                 Text("設定は端末内に暗号化保存し、次回起動時に復元します。モデル一覧は起動時に更新します。")
             }
         }
