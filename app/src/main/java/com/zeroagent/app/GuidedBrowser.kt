@@ -33,6 +33,7 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, onClose: (
     var proposal by remember { mutableStateOf<BrowserAction?>(null) }
     var message by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    var guideVisible by remember { mutableStateOf(true) }
     DisposableEffect(Unit) { onDispose { webView?.destroy() } }
     BackHandler { if (webView?.canGoBack() == true) webView?.goBack() else onClose() }
     Column(Modifier.fillMaxSize()) {
@@ -62,9 +63,17 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, onClose: (
                 }
             }, modifier = Modifier.fillMaxSize())
         }
-        Card(Modifier.fillMaxWidth().padding(8.dp)) {
+        if (!guideVisible) {
+            Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.End) {
+                Button(onClick = { guideVisible = true }) { Text("吹き出しを表示") }
+            }
+        }
+        if (guideVisible) Card(Modifier.fillMaxWidth().padding(8.dp)) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("ZERO AGENT ${index + 1}/${steps.size}", style = MaterialTheme.typography.titleMedium)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("ZERO AGENT ${index + 1}/${steps.size}", style = MaterialTheme.typography.titleMedium)
+                    TextButton(onClick = { guideVisible = false }) { Text("隠す") }
+                }
                 Text(steps.getOrElse(index) { "手順はありません" })
                 Button(enabled = !busy && apiKey.isNotBlank() && model.isNotBlank(), onClick = {
                     val web = webView ?: return@Button
