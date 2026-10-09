@@ -34,9 +34,20 @@ No automatic submission or external side effects. User must approve each action.
             http.newCall(request).execute().use { response ->
                 val raw = response.body?.string().orEmpty()
                 if (!response.isSuccessful) error("OpenRouter HTTP ${response.code}: ${raw.take(300)}")
-                val text = JSONObject(raw).getJSONArray("choices").getJSONObject(0)
-                    .getJSONObject("message").getString("content")
-                val json = JSONObject(text.substringAfter("{").let { "{" + it.substringBeforeLast("}") + "}" })
+                val message = JSONObject(raw).getJSONArray("choices").getJSONObject(0).getJSONObject("message")
+                val text = message.optString("content").trim()
+                val candidate = Regex("\\u0060\\u0060\\u0060(?:json)?\\\\s*([\\\\s\\\\S]*?)\\u0060\\u0060\\u0060", RegexOption.IGNORE_CASE)
+                    .find(text)?.groupValues?.get(1)?.trim() ?: text
+                val start = candidate.indexOf('{')
+                val end = candidate.lastIndexOf('}')
+                require(start >= 0 && end > start) {
+                    "AIの応答に操作データがありません。モデルを変更して再試行してください"
+                }
+                val json = try {
+                    JSONObject(candidate.substring(start, end + 1))
+                } catch (e: org.json.JSONException) {
+                    error("AIの応答がJSON形式ではありません。モデルを変更して再試行してください")
+                }
                 val type = json.optString("type")
                 val selector = json.optString("selector")
                 val value = json.optString("value")
