@@ -282,7 +282,7 @@ class ChromeAssistService : AccessibilityService() {
         if (found.isEmpty()) { message?.text = "読み取れる操作対象がありません"; if (automatic) autoRunning = false; return }
         val inventory = JSONArray()
         found.forEachIndexed { i, node ->
-            inventory.put(JSONObject().put("id", i).put("editable", node.isEditable).put("clickable", node.isClickable).put("text",
+            inventory.put(JSONObject().put("id", i).put("editable", node.isEditable).put("clickable", node.isClickable || !node.isEditable).put("text",
                 nodeLabels[i]).put("x", candidateBounds[i].centerX()).put("y", candidateBounds[i].centerY()).put("region", if (candidateBounds[i].centerY() > resources.displayMetrics.heightPixels * 0.8) "bottom" else "upper"))
         }
         val settings = LocalSettings(this)
@@ -410,6 +410,25 @@ class ChromeAssistService : AccessibilityService() {
         return false
     }
 
+    private fun clickNodeOrTap(node: AccessibilityNodeInfo, index: Int): Boolean {
+        if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+        val rect = candidateBounds.getOrNull(index) ?: return false
+        if (rect.isEmpty) return false
+        panel?.visibility = android.view.View.GONE
+        val path = Path().apply { moveTo(rect.centerX().toFloat(), rect.centerY().toFloat()) }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, 90)).build()
+        return dispatchGesture(gesture, object : GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) {
+                panel?.visibility = android.view.View.VISIBLE
+            }
+            override fun onCancelled(gestureDescription: GestureDescription?) {
+                panel?.visibility = android.view.View.VISIBLE
+                message?.text = "座標タップがキャンセルされました"
+            }
+        }, null)
+    }
+
     private fun clickApproved(automatic: Boolean = false): Boolean {
         val index = proposedIndex ?: return false
         val action = proposedAction ?: return false
@@ -421,12 +440,12 @@ class ChromeAssistService : AccessibilityService() {
         val root = rootInActiveWindow
         val name = listOfNotNull(node.text?.toString(), node.contentDescription?.toString()).joinToString(" ")
         if (root?.packageName?.toString() == "com.android.chrome" && node.refresh() &&
-            node.isVisibleToUser && (if (action.type == "fill") node.isEditable else node.isClickable) && !node.isPassword &&
+            node.isVisibleToUser && (if (action.type == "fill") node.isEditable else !candidateBounds[index].isEmpty) && !node.isPassword &&
             !protectedWords.containsMatchIn(name)) {
             val success = if (action.type == "fill" && action.value.length <= 300) {
                 val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, action.value) }
                 node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
-            } else if (action.type == "click") node.performAction(AccessibilityNodeInfo.ACTION_CLICK) else false
+            } else if (action.type == "click") clickNodeOrTap(node, index) else false
             message?.text = if (success) "操作しました。${if (automatic) "次の画面を確認中" else "次の操作は再提案してください"}" else "操作できませんでした"
             root?.recycle()
             if (success && !automatic) scope.launch {
