@@ -44,6 +44,7 @@ class ChromeAssistService : AccessibilityService() {
     private var runModel = ""
     private var nodes = emptyList<AccessibilityNodeInfo>()
     private var nodeLabels = emptyList<String>()
+    private var candidateBounds = emptyList<android.graphics.Rect>()
     private var proposedIndex: Int? = null
     private var proposedAction: BrowserAction? = null
     private var objectiveInput: EditText? = null
@@ -250,6 +251,7 @@ class ChromeAssistService : AccessibilityService() {
         nodes.forEach { it.recycle() }
         val found = mutableListOf<AccessibilityNodeInfo>()
         val labels = mutableListOf<String>()
+        val bounds = mutableListOf<android.graphics.Rect>()
         fun visit(node: AccessibilityNodeInfo, depth: Int): String {
             if (depth > 22 || found.size >= 100 || !node.isVisibleToUser) return ""
             val own = listOfNotNull(node.text?.toString(), node.contentDescription?.toString())
@@ -262,10 +264,13 @@ class ChromeAssistService : AccessibilityService() {
                 child.recycle()
             }
             val label = if (own.isNotBlank()) own else children.joinToString(" ").take(120)
-            if ((node.isClickable || node.isEditable) && !node.isPassword &&
+            val rect = android.graphics.Rect()
+            node.getBoundsInScreen(rect)
+            if ((node.isClickable || node.isEditable || (own.isNotBlank() && node.childCount == 0)) && !rect.isEmpty && !node.isPassword &&
                 label.isNotBlank() && !protectedWords.containsMatchIn(label)) {
                 found.add(AccessibilityNodeInfo.obtain(node))
                 labels.add(label.take(120))
+                bounds.add(rect)
             }
             return label
         }
@@ -273,11 +278,12 @@ class ChromeAssistService : AccessibilityService() {
         root.recycle()
         nodes = found
         nodeLabels = labels
+        candidateBounds = bounds
         if (found.isEmpty()) { message?.text = "読み取れる操作対象がありません"; if (automatic) autoRunning = false; return }
         val inventory = JSONArray()
         found.forEachIndexed { i, node ->
             inventory.put(JSONObject().put("id", i).put("editable", node.isEditable).put("clickable", node.isClickable).put("text",
-                nodeLabels[i]))
+                nodeLabels[i]).put("x", candidateBounds[i].centerX()).put("y", candidateBounds[i].centerY()).put("region", if (candidateBounds[i].centerY() > resources.displayMetrics.heightPixels * 0.8) "bottom" else "upper"))
         }
         val settings = LocalSettings(this)
         val key = settings.get("apiKey")
