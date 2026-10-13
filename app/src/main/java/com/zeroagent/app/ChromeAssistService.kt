@@ -246,6 +246,7 @@ class ChromeAssistService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null || event.packageName?.toString() == packageName) return
+        if (demonstrating && (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED || event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED)) recordDemonstration(event)
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val isChrome = event.packageName?.toString() in setOf("com.android.chrome", "com.microsoft.emmx", "org.mozilla.firefox", "com.brave.browser", "com.sec.android.app.sbrowser", "com.opera.browser")
         if (isChrome && !chromeActive) {
@@ -322,7 +323,7 @@ class ChromeAssistService : AccessibilityService() {
                 val goal = if (automatic) runGoal else objectiveInput?.text?.toString()?.take(500).orEmpty().ifBlank { settings.get("objective") }
                 val action = BrowserAgent.suggest(if (automatic) runKey else key, if (automatic) runModel else model,
                     "目標: $goal。Chrome画面の候補から安全なクリックまたは入力欄への入力を一つ選んでください。入力が必要な場合は目標に明示された一般的な検索語だけを使ってください。",
-                    inventory.toString() + "\n過去の操作結果（正数は画面変化、負数は変化なし）: " + learnedHints(goal))
+                    inventory.toString() + "\n過去の操作結果（正数は画面変化、負数は変化なし）: " + learnedHints(goal) + "; お手本の操作順: " + demonstrationHints(goal))
                 if (automatic && (!autoRunning || token != runToken)) return@launch
                 val index = Regex("""\[data-za-id="([0-9]+)"\]""")
                     .matchEntire(action.selector)?.groupValues?.get(1)?.toIntOrNull()
@@ -405,6 +406,40 @@ class ChromeAssistService : AccessibilityService() {
         val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value) }
         message?.text = if (target?.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args) == true) "文字を入力しました" else "Chromeで入力欄を選択してください"
         root.recycle()
+    }
+
+    private fun recordDemonstration(event: AccessibilityEvent) {
+        if (event.packageName?.toString() != "com.android.chrome" || demoSteps.length() >= 80) return
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - demoLastEventAt < 300) return
+        val source = event.source ?: return
+        if (source.isPassword || !source.isVisibleToUser) { source.recycle(); return }
+        val label = source.contentDescription?.toString().orEmpty().ifBlank { source.text?.toString().orEmpty() }.take(70)
+        val safeLabel = if (source.isEditable || protectedWords.containsMatchIn(label)) "" else label
+        val rect = android.graphics.Rect()
+        source.getBoundsInScreen(rect)
+        source.recycle()
+        demoLastEventAt = now
+        val kind = if (event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) "scroll" else "click"
+        demoSteps.put(JSONObject().put("action", kind).put("label", safeLabel)
+            .put("xPercent", rect.centerX() * 100 / resources.displayMetrics.widthPixels.coerceAtLeast(1))
+            .put("yPercent", rect.centerY() * 100 / resources.displayMetrics.heightPixels.coerceAtLeast(1))
+            .put("region", if (rect.centerY() > resources.displayMetrics.heightPixels * 0.8) "bottom" else "upper"))
+        message?.text = "お手本記録中: " + demoSteps.length() + "操作"
+    }
+
+    private fun demonstrationHints(goal: String): String {
+        if (goal.isBlank()) return ""
+        val prefs = getSharedPreferences("browser_demonstrations", MODE_PRIVATE)
+        val examples = try { JSONArray(prefs.getString("examples", "[]")) } catch (_: Exception) { JSONArray() }
+        val matched = mutableListOf<String>()
+        for (i in 0 until examples.length()) {
+            val example = examples.optJSONObject(i) ?: continue
+            val name = example.optString("goal")
+            if (name.isNotBlank() && (goal.contains(name, true) || name.contains(goal, true)))
+                matched.add(example.optJSONArray("steps")?.toString()?.take(1800).orEmpty())
+        }
+        return matched.takeLast(2).joinToString("; ").take(3500)
     }
 
     private fun learnClick(goal: String, label: String, changed: Boolean) {
