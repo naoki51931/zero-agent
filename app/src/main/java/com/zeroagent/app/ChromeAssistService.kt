@@ -293,15 +293,20 @@ class ChromeAssistService : AccessibilityService() {
                     if (automatic) {
                         delay(650)
                         if (autoRunning && token == runToken) {
+                            val before = screenFingerprint()
                             val succeeded = clickApproved(true)
+                            val changed = succeeded && screenChanged(before)
                             stepsRemaining--
-                            if (succeeded && stepsRemaining > 0 && autoRunning) {
-                                delay(1100)
-                                if (token == runToken) {
-                                    pending = false
-                                    analyze(true, token)
-                                }
-                            } else { autoRunning = false; message?.append("\\n連続操作を終了しました") }
+                            if (changed && stepsRemaining > 0 && autoRunning && token == runToken) {
+                                message?.text = "画面の変化を確認。次の操作を解析します"
+                                pending = false
+                                analyze(true, token)
+                            } else {
+                                autoRunning = false
+                                message?.text = if (succeeded && !changed)
+                                    "画面の変化を確認できないため、連続操作を停止しました"
+                                else "連続操作を終了しました"
+                            }
                         }
                     }
                 } else { message?.text = "安全に操作できる候補はありません"; if (automatic) autoRunning = false }
