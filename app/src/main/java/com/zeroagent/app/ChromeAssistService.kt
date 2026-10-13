@@ -34,6 +34,8 @@ class ChromeAssistService : AccessibilityService() {
     private var message: TextView? = null
     private var approve: Button? = null
     private var pending = false
+    private var chromeActive = false
+    private var consentPanel: LinearLayout? = null
     private var autoRunning = false
     private var runToken = 0
     private var stepsRemaining = 0
@@ -57,6 +59,25 @@ class ChromeAssistService : AccessibilityService() {
         }
         val status = TextView(this).apply { text = "ZERO AGENT: Chromeを開いてください" }
         message = status
+        val consent = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        consent.addView(TextView(this).apply { text = "ChromeでZero Agentを使いますか？"; textSize = 16f })
+        val choiceRow = LinearLayout(this)
+        choiceRow.addView(Button(this).apply {
+            text = "使う"
+            setOnClickListener {
+                consent.visibility = android.view.View.GONE
+                message?.text = "Zero Agentを使用中。AIの操作提案を利用できます"
+            }
+        })
+        choiceRow.addView(Button(this).apply {
+            text = "使わない"
+            setOnClickListener {
+                consent.visibility = android.view.View.GONE
+                panel?.visibility = android.view.View.GONE
+            }
+        })
+        consent.addView(choiceRow)
+        consentPanel = consent
         val objective = EditText(this).apply {
             hint = "Chromeで何をしたい？"
             setSingleLine(true)
@@ -187,16 +208,29 @@ class ChromeAssistService : AccessibilityService() {
             text = "小さくする"
             setOnClickListener { setCompact(true) }
         }
-        layout.addView(dragHandle); layout.addView(status); layout.addView(objective); layout.addView(suggest); layout.addView(accept); layout.addView(manual); layout.addView(fill); layout.addView(scroll); layout.addView(up); layout.addView(back); layout.addView(auto); layout.addView(stop); layout.addView(xInput); layout.addView(yInput); layout.addView(tap); layout.addView(home); layout.addView(toggle)
+        layout.addView(dragHandle); layout.addView(consent); layout.addView(status); layout.addView(objective); layout.addView(suggest); layout.addView(accept); layout.addView(manual); layout.addView(fill); layout.addView(scroll); layout.addView(up); layout.addView(back); layout.addView(auto); layout.addView(stop); layout.addView(xInput); layout.addView(yInput); layout.addView(tap); layout.addView(home); layout.addView(toggle)
         manager.addView(layout, params)
         panel = layout
         setCompact(true)
+        consent.visibility = android.view.View.GONE
+        layout.visibility = android.view.View.GONE
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event?.packageName?.toString() != "com.android.chrome") {
+        if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+        val isChrome = event.packageName?.toString() == "com.android.chrome"
+        if (isChrome && !chromeActive) {
+            chromeActive = true
+            panel?.visibility = android.view.View.VISIBLE
+            consentPanel?.visibility = android.view.View.VISIBLE
+        } else if (!isChrome && chromeActive) {
+            chromeActive = false
+            panel?.visibility = android.view.View.GONE
             proposedIndex = null
+            proposedAction = null
             approve?.isEnabled = false
+            autoRunning = false
+            runToken++
         }
     }
 
