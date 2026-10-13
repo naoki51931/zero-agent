@@ -86,6 +86,7 @@ class ChromeAssistService : AccessibilityService() {
         objectiveInput = objective
         val suggest = Button(this).apply { text = "AIに次の操作を提案させる"; setOnClickListener { analyze() } }
         val accept = Button(this).apply { text = "提案を承認して実行"; isEnabled = false; setOnClickListener { clickApproved() } }
+        val create = Button(this).apply { text = "SeaArtの「創作」を開く"; setOnClickListener { openSeaArtCreate() } }
         val manual = EditText(this).apply { hint = "選択した入力欄に入れる文字"; setSingleLine(true) }
         manualInput = manual
         val fill = Button(this).apply { text = "選択中の入力欄に文字を入力"; setOnClickListener { fillFocused() } }
@@ -151,7 +152,7 @@ class ChromeAssistService : AccessibilityService() {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.TOP; y = (48 * resources.displayMetrics.density).toInt() }
-        val controls = listOf(status, objective, suggest, accept, manual, fill, scroll, up, back, auto, stop, xInput, yInput, tap, home)
+        val controls = listOf(status, objective, suggest, accept, create, manual, fill, scroll, up, back, auto, stop, xInput, yInput, tap, home)
         var compact = false
         fun setCompact(value: Boolean) {
             compact = value
@@ -208,7 +209,7 @@ class ChromeAssistService : AccessibilityService() {
             text = "小さくする"
             setOnClickListener { setCompact(true) }
         }
-        layout.addView(dragHandle); layout.addView(consent); layout.addView(status); layout.addView(objective); layout.addView(suggest); layout.addView(accept); layout.addView(manual); layout.addView(fill); layout.addView(scroll); layout.addView(up); layout.addView(back); layout.addView(auto); layout.addView(stop); layout.addView(xInput); layout.addView(yInput); layout.addView(tap); layout.addView(home); layout.addView(toggle)
+        layout.addView(dragHandle); layout.addView(consent); layout.addView(status); layout.addView(objective); layout.addView(suggest); layout.addView(accept); layout.addView(create); layout.addView(manual); layout.addView(fill); layout.addView(scroll); layout.addView(up); layout.addView(back); layout.addView(auto); layout.addView(stop); layout.addView(xInput); layout.addView(yInput); layout.addView(tap); layout.addView(home); layout.addView(toggle)
         manager.addView(layout, params)
         panel = layout
         setCompact(true)
@@ -313,6 +314,56 @@ class ChromeAssistService : AccessibilityService() {
             } catch (e: Exception) { if (!automatic || token == runToken) message?.text = "解析エラー: ${e.message?.take(120)}"; if (automatic) autoRunning = false }
             finally { pending = false }
         }
+    }
+
+    private fun openSeaArtCreate() {
+        val root = rootInActiveWindow
+        if (root?.packageName?.toString() != "com.android.chrome") {
+            message?.text = "ChromeでSeaArtを開いてください"
+            root?.recycle()
+            return
+        }
+        var target: android.graphics.Rect? = null
+        fun visit(node: AccessibilityNodeInfo, depth: Int) {
+            if (depth > 22) return
+            val label = listOfNotNull(node.text?.toString(), node.contentDescription?.toString())
+                .joinToString(" ").trim()
+            if (node.isVisibleToUser && label == "創作") {
+                val rect = android.graphics.Rect()
+                node.getBoundsInScreen(rect)
+                if (!rect.isEmpty && rect.centerY() > resources.displayMetrics.heightPixels / 2) {
+                    target = rect
+                }
+            }
+            for (i in 0 until node.childCount) {
+                val child = node.getChild(i) ?: continue
+                visit(child, depth + 1)
+                child.recycle()
+            }
+        }
+        visit(root, 0)
+        root.recycle()
+        val rect = target
+        if (rect == null) {
+            message?.text = "創作ボタンを見つけられません。Chromeの画面を確認してください"
+            return
+        }
+        val before = screenFingerprint()
+        val path = Path().apply { moveTo(rect.centerX().toFloat(), rect.centerY().toFloat()) }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, 90)).build()
+        message?.text = "創作ボタンをタップしています…"
+        dispatchGesture(gesture, object : GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) {
+                scope.launch {
+                    message?.text = if (screenChanged(before)) "創作をタップし、画面の変化を確認しました"
+                    else "タップを送信しましたが、画面の変化を確認できませんでした"
+                }
+            }
+            override fun onCancelled(gestureDescription: GestureDescription?) {
+                message?.text = "創作へのタップがキャンセルされました"
+            }
+        }, null)
     }
 
     private fun scrollChrome(forward: Boolean = true) {
