@@ -43,6 +43,7 @@ class ChromeAssistService : AccessibilityService() {
     private var runKey = ""
     private var runModel = ""
     private var nodes = emptyList<AccessibilityNodeInfo>()
+    private var nodeLabels = emptyList<String>()
     private var proposedIndex: Int? = null
     private var proposedAction: BrowserAction? = null
     private var objectiveInput: EditText? = null
@@ -248,27 +249,35 @@ class ChromeAssistService : AccessibilityService() {
         }
         nodes.forEach { it.recycle() }
         val found = mutableListOf<AccessibilityNodeInfo>()
-        fun visit(node: AccessibilityNodeInfo, depth: Int) {
-            if (depth > 18 || found.size >= 60) return
-            val name = listOfNotNull(node.text?.toString(), node.contentDescription?.toString()).joinToString(" ")
-            if (node.isVisibleToUser && (node.isClickable || node.isEditable) && !node.isPassword &&
-                name.isNotBlank() && !protectedWords.containsMatchIn(name)) {
-                found.add(AccessibilityNodeInfo.obtain(node))
-            }
+        val labels = mutableListOf<String>()
+        fun visit(node: AccessibilityNodeInfo, depth: Int): String {
+            if (depth > 22 || found.size >= 100 || !node.isVisibleToUser) return ""
+            val own = listOfNotNull(node.text?.toString(), node.contentDescription?.toString())
+                .joinToString(" ").trim()
+            val children = mutableListOf<String>()
             for (i in 0 until node.childCount) {
                 val child = node.getChild(i) ?: continue
-                visit(child, depth + 1)
+                val label = visit(child, depth + 1)
+                if (label.isNotBlank() && children.size < 5) children.add(label)
                 child.recycle()
             }
+            val label = if (own.isNotBlank()) own else children.joinToString(" ").take(120)
+            if ((node.isClickable || node.isEditable) && !node.isPassword &&
+                label.isNotBlank() && !protectedWords.containsMatchIn(label)) {
+                found.add(AccessibilityNodeInfo.obtain(node))
+                labels.add(label.take(120))
+            }
+            return label
         }
         visit(root, 0)
         root.recycle()
         nodes = found
+        nodeLabels = labels
         if (found.isEmpty()) { message?.text = "読み取れる操作対象がありません"; if (automatic) autoRunning = false; return }
         val inventory = JSONArray()
         found.forEachIndexed { i, node ->
             inventory.put(JSONObject().put("id", i).put("editable", node.isEditable).put("clickable", node.isClickable).put("text",
-                listOfNotNull(node.text?.toString(), node.contentDescription?.toString()).joinToString(" ").take(120)))
+                nodeLabels[i]))
         }
         val settings = LocalSettings(this)
         val key = settings.get("apiKey")
@@ -288,7 +297,7 @@ class ChromeAssistService : AccessibilityService() {
                 if (action.type in listOf("click", "fill") && index != null && index in nodes.indices && (action.type != "fill" || (nodes[index].isEditable && action.value.length <= 300))) {
                     proposedAction = action
                     proposedIndex = index
-                    message?.text = "AI提案: ${action.explanation}\n操作: ${action.type} / 対象: ${nodes[index].text ?: nodes[index].contentDescription}\n入力: ${if (action.type == "fill") action.value else "なし"}"
+                    message?.text = "AI提案: ${action.explanation}\n操作: ${action.type} / 対象: ${nodeLabels.getOrNull(index)}\n入力: ${if (action.type == "fill") action.value else "なし"}"
                     approve?.isEnabled = !automatic
                     if (automatic) {
                         delay(650)
