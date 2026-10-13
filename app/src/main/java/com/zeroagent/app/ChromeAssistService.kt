@@ -55,7 +55,7 @@ class ChromeAssistService : AccessibilityService() {
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(20, 12, 20, 12)
-            setBackgroundColor(0xFFF2ECFA.toInt())
+            setBackgroundColor(0xB8F2ECFA.toInt())
         }
         val status = TextView(this).apply { text = "ZERO AGENT: Chromeを開いてください" }
         message = status
@@ -142,7 +142,7 @@ class ChromeAssistService : AccessibilityService() {
             text = "☰ ここをドラッグして移動"
             textSize = 16f
             setPadding(24, 18, 24, 18)
-            setBackgroundColor(0xFFD4C8ED.toInt())
+            setBackgroundColor(0xC8D4C8ED.toInt())
         }
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -274,7 +274,7 @@ class ChromeAssistService : AccessibilityService() {
         val key = settings.get("apiKey")
         val model = settings.get("model")
         if (key.isBlank() || model.isBlank()) { message?.text = "アプリでAPIキーとモデルを設定してください"; if (automatic) autoRunning = false; return }
-        message?.text = "画面の文字とボタンをAIで確認中…"
+        message?.text = "AIが画面の文字と操作対象を解析しています…"
         pending = true
         scope.launch {
             try {
