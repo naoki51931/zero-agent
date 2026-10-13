@@ -112,15 +112,10 @@ class ChromeAssistService : AccessibilityService() {
                 message?.text = "お手本を保存: " + demoSteps.length() + "操作"
             }
         }
-        val suggest = Button(this).apply { text = "AIに次の操作を提案させる"; setOnClickListener { analyze() } }
-        val accept = Button(this).apply { text = "提案を承認して実行"; isEnabled = false; setOnClickListener { clickApproved() } }
-        val manual = EditText(this).apply { hint = "選択した入力欄に入れる文字"; setSingleLine(true) }
-        manualInput = manual
-        val fill = Button(this).apply { text = "選択中の入力欄に文字を入力"; setOnClickListener { fillFocused() } }
-        val back = Button(this).apply { text = "戻る"; setOnClickListener { proposedIndex = null; approve?.isEnabled = false; performGlobalAction(GLOBAL_ACTION_BACK) } }
-        val up = Button(this).apply { text = "上へスクロール"; setOnClickListener { scrollChrome(false) } }
+        val suggest = Button(this).apply { text = "AIに操作を提案"; setOnClickListener { analyze() } }
+        val accept = Button(this).apply { text = "提案を実行"; isEnabled = false; setOnClickListener { clickApproved() } }
         val auto = Button(this).apply {
-            text = "安全な操作を最大5回連続実行"
+            text = "AIで連続操作（最大5回）"
             setOnClickListener {
                 if (autoRunning) return@setOnClickListener
                 val settings = LocalSettings(this@ChromeAssistService)
@@ -134,38 +129,12 @@ class ChromeAssistService : AccessibilityService() {
                 analyze(true, runToken)
             }
         }
-        val stop = Button(this).apply { text = "自動操作を停止"; setOnClickListener {
+        val stop = Button(this).apply { text = "停止"; setOnClickListener {
             autoRunning = false; runToken++; stepsRemaining = 0
             proposedIndex = null; proposedAction = null; approve?.isEnabled = false
             message?.text = "停止しました"
         } }
-        val xInput = EditText(this).apply { hint = "X座標（px）"; inputType = InputType.TYPE_CLASS_NUMBER; setSingleLine(true) }
-        val yInput = EditText(this).apply { hint = "Y座標（px）"; inputType = InputType.TYPE_CLASS_NUMBER; setSingleLine(true) }
-        val tap = Button(this).apply { text = "指定座標をタップ（手動）"; setOnClickListener {
-            val root = rootInActiveWindow
-            if (root?.packageName?.toString() != "com.android.chrome") {
-                message?.text = "Chromeを開いてください"
-            } else {
-                val x = xInput.text.toString().toIntOrNull()
-                val y = yInput.text.toString().toIntOrNull()
-                val metrics = resources.displayMetrics
-                if (x == null || y == null || x !in 0 until metrics.widthPixels || y !in 0 until metrics.heightPixels) {
-                    message?.text = "画面内のX/Y座標を入力してください"
-                } else {
-                    val path = Path().apply { moveTo(x.toFloat(), y.toFloat()) }
-                    val gesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, 80)).build()
-                    dispatchGesture(gesture, null, null)
-                    message?.text = "指定座標にタップを送信しました"
-                }
-            }
-            root?.recycle()
-        } }
         approve = accept
-        val scroll = Button(this).apply { text = "Chromeを下へスクロール"; setOnClickListener { scrollChrome() } }
-        val home = Button(this).apply { text = "ホームへ戻る"; setOnClickListener {
-            autoRunning = false; runToken++; stepsRemaining = 0
-            performGlobalAction(GLOBAL_ACTION_HOME)
-        } }
         val dragHandle = TextView(this).apply {
             text = "☰ ここをドラッグして移動"
             textSize = 16f
@@ -179,7 +148,7 @@ class ChromeAssistService : AccessibilityService() {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.TOP; y = (48 * resources.displayMetrics.density).toInt() }
-        val controls = listOf(status, objective, demoStart, demoStop, suggest, accept, manual, fill, scroll, up, back, auto, stop, xInput, yInput, tap, home)
+        val controls = listOf(status, objective, demoStart, demoStop, suggest, accept, auto, stop)
         var compact = false
         fun setCompact(value: Boolean) {
             compact = value
@@ -236,7 +205,7 @@ class ChromeAssistService : AccessibilityService() {
             text = "小さくする"
             setOnClickListener { setCompact(true) }
         }
-        layout.addView(dragHandle); layout.addView(consent); layout.addView(status); layout.addView(objective); layout.addView(demoStart); layout.addView(demoStop); layout.addView(suggest); layout.addView(accept); layout.addView(manual); layout.addView(fill); layout.addView(scroll); layout.addView(up); layout.addView(back); layout.addView(auto); layout.addView(stop); layout.addView(xInput); layout.addView(yInput); layout.addView(tap); layout.addView(home); layout.addView(toggle)
+        layout.addView(dragHandle); layout.addView(consent); layout.addView(status); layout.addView(objective); layout.addView(demoStart); layout.addView(demoStop); layout.addView(suggest); layout.addView(accept); layout.addView(auto); layout.addView(stop); layout.addView(toggle)
         manager.addView(layout, params)
         panel = layout
         setCompact(true)
