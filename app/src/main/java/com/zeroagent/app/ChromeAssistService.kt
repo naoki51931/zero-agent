@@ -35,6 +35,8 @@ class ChromeAssistService : AccessibilityService() {
     private var approve: Button? = null
     private var pending = false
     private var chromeActive = false
+    private var browserTransitionToken = 0
+    private var browserConsentShown = false
     private var demonstrating = false
     private var demoSteps = JSONArray()
     private var demoGoal = ""
@@ -217,18 +219,39 @@ class ChromeAssistService : AccessibilityService() {
         if (demonstrating && (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED || event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED)) recordDemonstration(event)
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val isChrome = event.packageName?.toString() in setOf("com.android.chrome", "com.microsoft.emmx", "org.mozilla.firefox", "com.brave.browser", "com.sec.android.app.sbrowser", "com.opera.browser")
-        if (isChrome && !chromeActive) {
-            chromeActive = true
-            panel?.visibility = android.view.View.VISIBLE
-            consentPanel?.visibility = android.view.View.VISIBLE
-        } else if (!isChrome && chromeActive) {
-            chromeActive = false
-            panel?.visibility = android.view.View.GONE
-            proposedIndex = null
-            proposedAction = null
-            approve?.isEnabled = false
-            autoRunning = false
-            runToken++
+        if (isChrome) {
+            browserTransitionToken++
+            if (!chromeActive) {
+                chromeActive = true
+                panel?.visibility = android.view.View.VISIBLE
+                if (!browserConsentShown) {
+                    consentPanel?.visibility = android.view.View.VISIBLE
+                    browserConsentShown = true
+                }
+            }
+        } else if (chromeActive) {
+            // Chrome emits short-lived non-browser window events while navigating,
+            // opening the keyboard, or changing tabs. Verify the foreground later.
+            val token = ++browserTransitionToken
+            scope.launch {
+                delay(900)
+                if (token != browserTransitionToken) return@launch
+                val foreground = rootInActiveWindow
+                val foregroundPackage = foreground?.packageName?.toString()
+                foreground?.recycle()
+                if (foregroundPackage == null || foregroundPackage == packageName ||
+                    foregroundPackage in setOf("com.android.chrome", "com.microsoft.emmx",
+                        "org.mozilla.firefox", "com.brave.browser",
+                        "com.sec.android.app.sbrowser", "com.opera.browser")) return@launch
+                chromeActive = false
+                browserConsentShown = false
+                panel?.visibility = android.view.View.GONE
+                proposedIndex = null
+                proposedAction = null
+                approve?.isEnabled = false
+                autoRunning = false
+                runToken++
+            }
         }
     }
 
