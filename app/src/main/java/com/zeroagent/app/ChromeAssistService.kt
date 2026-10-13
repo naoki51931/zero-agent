@@ -308,9 +308,11 @@ class ChromeAssistService : AccessibilityService() {
                     if (automatic) {
                         delay(650)
                         if (autoRunning && token == runToken) {
+                            val learningLabel = nodeLabels.getOrNull(index).orEmpty()
                             val before = screenFingerprint()
                             val succeeded = clickApproved(true)
                             val changed = succeeded && screenChanged(before)
+                            if (succeeded && action.type == "click") learnClick(goal, learningLabel, changed)
                             stepsRemaining--
                             if (changed && stepsRemaining > 0 && autoRunning && token == runToken) {
                                 message?.text = "画面の変化を確認。次の操作を解析します"
@@ -456,6 +458,8 @@ class ChromeAssistService : AccessibilityService() {
         approve?.isEnabled = false
         val node = nodes.getOrNull(index) ?: return false
         val before = if (!automatic) screenFingerprint() else null
+        val learningLabel = nodeLabels.getOrNull(index).orEmpty()
+        val learningGoal = objectiveInput?.text?.toString().orEmpty().ifBlank { LocalSettings(this).get("objective") }
         val root = rootInActiveWindow
         val name = listOfNotNull(node.text?.toString(), node.contentDescription?.toString()).joinToString(" ")
         if (root?.packageName?.toString() == "com.android.chrome" && node.refresh() &&
@@ -468,7 +472,9 @@ class ChromeAssistService : AccessibilityService() {
             message?.text = if (success) "操作しました。${if (automatic) "次の画面を確認中" else "次の操作は再提案してください"}" else "操作できませんでした"
             root?.recycle()
             if (success && !automatic) scope.launch {
-                message?.text = if (screenChanged(before)) "画面の変化を確認しました。次の操作を提案できます" else "操作は送信されましたが、画面の変化を確認できませんでした"
+                val changed = screenChanged(before)
+                if (action.type == "click") learnClick(learningGoal, learningLabel, changed)
+                message?.text = if (changed) "画面変化を確認し、操作結果を学習しました" else "画面変化を確認できず、失敗候補として記録しました"
             }
             return success
         } else message?.text = "画面が変わりました。再解析してください"
