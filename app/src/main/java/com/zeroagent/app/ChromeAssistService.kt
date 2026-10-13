@@ -296,7 +296,7 @@ class ChromeAssistService : AccessibilityService() {
                 val goal = if (automatic) runGoal else objectiveInput?.text?.toString()?.take(500).orEmpty().ifBlank { settings.get("objective") }
                 val action = BrowserAgent.suggest(if (automatic) runKey else key, if (automatic) runModel else model,
                     "目標: $goal。Chrome画面の候補から安全なクリックまたは入力欄への入力を一つ選んでください。入力が必要な場合は目標に明示された一般的な検索語だけを使ってください。",
-                    inventory.toString())
+                    inventory.toString() + "\n過去の操作結果（正数は画面変化、負数は変化なし）: " + learnedHints(goal))
                 if (automatic && (!autoRunning || token != runToken)) return@launch
                 val index = Regex("""\[data-za-id="([0-9]+)"\]""")
                     .matchEntire(action.selector)?.groupValues?.get(1)?.toIntOrNull()
@@ -377,6 +377,25 @@ class ChromeAssistService : AccessibilityService() {
         val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value) }
         message?.text = if (target?.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args) == true) "文字を入力しました" else "Chromeで入力欄を選択してください"
         root.recycle()
+    }
+
+    private fun learnClick(goal: String, label: String, changed: Boolean) {
+        if (goal.isBlank() || label.isBlank() || protectedWords.containsMatchIn(label)) return
+        val prefs = getSharedPreferences("browser_click_learning", MODE_PRIVATE)
+        val key = (goal.trim().lowercase() + "|" + label.trim().lowercase()).take(180)
+        val old = prefs.getInt(key, 0)
+        prefs.edit().putInt(key, (old + if (changed) 1 else -1).coerceIn(-5, 10)).apply()
+    }
+
+    private fun learnedHints(goal: String): String {
+        if (goal.isBlank()) return ""
+        val prefix = goal.trim().lowercase() + "|"
+        return getSharedPreferences("browser_click_learning", MODE_PRIVATE).all.entries
+            .filter { it.key.startsWith(prefix) && it.value is Int }
+            .sortedByDescending { it.value as Int }
+            .take(12)
+            .joinToString("; ") { it.key.removePrefix(prefix).take(70) + "=" + it.value }
+            .take(1000)
     }
 
     private fun screenFingerprint(): String? {
