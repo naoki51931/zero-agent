@@ -217,7 +217,8 @@ class ChromeAssistService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event == null) return
+        if (event == null || event.packageName?.toString() == packageName) return
+        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val isChrome = event.packageName?.toString() in setOf("com.android.chrome", "com.microsoft.emmx", "org.mozilla.firefox", "com.brave.browser", "com.sec.android.app.sbrowser", "com.opera.browser")
         if (isChrome && !chromeActive) {
             chromeActive = true
