@@ -52,7 +52,6 @@ class ChromeAssistService : AccessibilityService() {
     private var proposedIndex: Int? = null
     private var proposedAction: BrowserAction? = null
     private var objectiveInput: EditText? = null
-    private var manualInput: EditText? = null
     private val protectedWords = Regex("login|sign.in|password|checkout|purchase|payment|delete|send|publish|submit|consent|captcha|ログイン|認証|購入|支払|削除|送信|投稿|同意|パスワード", RegexOption.IGNORE_CASE)
 
     override fun onServiceConnected() {
@@ -349,31 +348,6 @@ class ChromeAssistService : AccessibilityService() {
             return false
         }
         message?.text = if (scroll(root, 0)) "スクロールしました。再解析してください" else "スクロール対象がありません"
-        root.recycle()
-    }
-
-    private fun fillFocused() {
-        val root = rootInActiveWindow
-        if (root?.packageName?.toString() != "com.android.chrome") {
-            message?.text = "Chromeを開いてください"
-            return
-        }
-        val value = manualInput?.text?.toString().orEmpty()
-        if (value.isBlank() || value.length > 300) { message?.text = "300文字以内で入力してください"; return }
-        fun find(node: AccessibilityNodeInfo, depth: Int): AccessibilityNodeInfo? {
-            if (depth > 18) return null
-            if (node.isFocused && node.isEditable && !node.isPassword && node.isVisibleToUser) return node
-            for (i in 0 until node.childCount) {
-                val child = node.getChild(i) ?: continue
-                val result = find(child, depth + 1)
-                if (result != null) return result
-                child.recycle()
-            }
-            return null
-        }
-        val target = find(root, 0)
-        val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value) }
-        message?.text = if (target?.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args) == true) "文字を入力しました" else "Chromeで入力欄を選択してください"
         root.recycle()
     }
 
