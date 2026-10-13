@@ -312,13 +312,19 @@ class ChromeAssistService : AccessibilityService() {
         scope.launch {
             try {
                 val goal = if (automatic) runGoal else objectiveInput?.text?.toString()?.take(500).orEmpty().ifBlank { settings.get("objective") }
+                val currentUrl = visibleBrowserUrl()
+                val pageContext = "現在URL: ${currentUrl ?: "取得不可（推測禁止）"}\n" +
+                    "現在の画面に存在する候補だけを操作すること。すでに目標ページなら遷移ボタンを探さない。\n" +
+                    "候補一覧: " + inventory.toString() +
+                    "\n過去の操作結果（正数は画面変化、負数は変化なし）: " + learnedHints(goal) +
+                    "; お手本の操作順: " + demonstrationHints(goal)
                 val action = BrowserAgent.suggest(if (automatic) runKey else key, if (automatic) runModel else model,
                     "目標: $goal。Chrome画面の候補から安全なクリックまたは入力欄への入力を一つ選んでください。入力が必要な場合は目標に明示された一般的な検索語だけを使ってください。",
-                    inventory.toString() + "\n過去の操作結果（正数は画面変化、負数は変化なし）: " + learnedHints(goal) + "; お手本の操作順: " + demonstrationHints(goal))
+                    pageContext)
                 if (automatic && (!autoRunning || token != runToken)) return@launch
                 val index = Regex("""\[data-za-id="([0-9]+)"\]""")
                     .matchEntire(action.selector)?.groupValues?.get(1)?.toIntOrNull()
-                if (action.type in listOf("click", "fill") && index != null && index in nodes.indices && (action.type != "fill" || (nodes[index].isEditable && action.value.length <= 300))) {
+                if (action.type in listOf("click", "fill") && index != null && index in nodes.indices && (if (action.type == "fill") nodes[index].isEditable && action.value.length <= 300 else nodes[index].isClickable) && nodes[index].refresh() && nodes[index].isVisibleToUser) {
                     proposedAction = action
                     proposedIndex = index
                     message?.text = "AI提案: ${action.explanation}\n操作: ${action.type} / 対象: ${nodeLabels.getOrNull(index)}\n入力: ${if (action.type == "fill") action.value else "なし"}"
@@ -427,6 +433,32 @@ class ChromeAssistService : AccessibilityService() {
             .take(1000)
     }
 
+    private fun visibleBrowserUrl(): String? {
+        val root = rootInActiveWindow ?: return null
+        if (root.packageName?.toString() != "com.android.chrome") { root.recycle(); return null }
+        var url: String? = null
+        fun walk(node: AccessibilityNodeInfo, depth: Int) {
+            if (depth > 16 || url != null) return
+            if (node.isVisibleToUser && !node.isPassword) {
+                val value = node.text?.toString()?.trim().orEmpty()
+                val id = node.viewIdResourceName.orEmpty()
+                if ((id.contains("url_bar") || id.contains("location_bar")) &&
+                    (value.startsWith("https://") || value.startsWith("http://") ||
+                     Regex("^[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}(/.*)?$").matches(value))) {
+                    url = value.take(500)
+                }
+            }
+            for (i in 0 until node.childCount) {
+                val child = node.getChild(i) ?: continue
+                walk(child, depth + 1)
+                child.recycle()
+            }
+        }
+        walk(root, 0)
+        root.recycle()
+        return url
+    }
+
     private fun screenFingerprint(): String? {
         val root = rootInActiveWindow ?: return null
         if (root.packageName?.toString() != "com.android.chrome") { root.recycle(); return null }
@@ -445,7 +477,7 @@ class ChromeAssistService : AccessibilityService() {
         }
         visit(root, 0)
         root.recycle()
-        return parts.joinToString("|").take(8000)
+        return ("url=" + (visibleBrowserUrl() ?: "unknown") + "|" + parts.joinToString("|")).take(8000)
     }
 
     private suspend fun screenChanged(before: String?): Boolean {
