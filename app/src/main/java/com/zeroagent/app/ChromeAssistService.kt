@@ -359,6 +359,37 @@ class ChromeAssistService : AccessibilityService() {
         root.recycle()
     }
 
+    private fun screenFingerprint(): String? {
+        val root = rootInActiveWindow ?: return null
+        if (root.packageName?.toString() != "com.android.chrome") { root.recycle(); return null }
+        val parts = mutableListOf<String>()
+        fun visit(node: AccessibilityNodeInfo, depth: Int) {
+            if (depth > 18 || parts.size >= 120) return
+            if (node.isVisibleToUser && !node.isPassword) {
+                val label = listOfNotNull(node.text?.toString(), node.contentDescription?.toString()).joinToString(" ").trim()
+                if (label.isNotEmpty()) parts.add(label.take(100))
+            }
+            for (i in 0 until node.childCount) {
+                val child = node.getChild(i) ?: continue
+                visit(child, depth + 1)
+                child.recycle()
+            }
+        }
+        visit(root, 0)
+        root.recycle()
+        return parts.joinToString("|").take(8000)
+    }
+
+    private suspend fun screenChanged(before: String?): Boolean {
+        if (before == null) return false
+        repeat(8) {
+            delay(450)
+            val after = screenFingerprint()
+            if (after != null && after != before) return true
+        }
+        return false
+    }
+
     private fun clickApproved(automatic: Boolean = false): Boolean {
         val index = proposedIndex ?: return false
         val action = proposedAction ?: return false
@@ -366,6 +397,7 @@ class ChromeAssistService : AccessibilityService() {
         proposedAction = null
         approve?.isEnabled = false
         val node = nodes.getOrNull(index) ?: return false
+        val before = if (!automatic) screenFingerprint() else null
         val root = rootInActiveWindow
         val name = listOfNotNull(node.text?.toString(), node.contentDescription?.toString()).joinToString(" ")
         if (root?.packageName?.toString() == "com.android.chrome" && node.refresh() &&
@@ -377,6 +409,9 @@ class ChromeAssistService : AccessibilityService() {
             } else if (action.type == "click") node.performAction(AccessibilityNodeInfo.ACTION_CLICK) else false
             message?.text = if (success) "操作しました。${if (automatic) "次の画面を確認中" else "次の操作は再提案してください"}" else "操作できませんでした"
             root?.recycle()
+            if (success && !automatic) scope.launch {
+                message?.text = if (screenChanged(before)) "画面の変化を確認しました。次の操作を提案できます" else "操作は送信されましたが、画面の変化を確認できませんでした"
+            }
             return success
         } else message?.text = "画面が変わりました。再解析してください"
         root?.recycle()
