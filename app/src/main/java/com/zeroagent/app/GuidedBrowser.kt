@@ -90,6 +90,11 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
     val context = LocalContext.current
     val visualMemory = remember { VisualMemory(context) }
     val episodeMemory = remember { EpisodeMemory(context) }
+    val popularPostMemory = remember { PopularPostMemory(context) }
+    var xKeyword by remember { mutableStateOf("") }
+    var xMinLikes by remember { mutableStateOf("1000") }
+    var xPosts by remember { mutableStateOf(popularPostMemory.popular()) }
+    var xStatus by remember { mutableStateOf("") }
     fun openInBrowser(url: String) {
         val safeUrl = url.takeIf { it.startsWith("https://") || it.startsWith("http://") } ?: return
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(safeUrl)).addCategory(Intent.CATEGORY_BROWSABLE))
@@ -283,6 +288,37 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
         }
         TextButton(onClick = { openInBrowser(lastWebsiteUrl) }, modifier = Modifier.fillMaxWidth()) {
             Text("このページをChromeなどのブラウザで開く（ログイン用）")
+        }
+        if (Uri.parse(input).host?.lowercase(Locale.ROOT) in setOf("x.com", "www.x.com", "twitter.com", "www.twitter.com")) {
+            OutlinedTextField(value = xKeyword, onValueChange = { xKeyword = it }, label = { Text("X検索キーワード") }, singleLine = true)
+            Row {
+                OutlinedTextField(value = xMinLikes, onValueChange = { xMinLikes = it.filter(Char::isDigit) }, label = { Text("最低いいね数") }, modifier = Modifier.weight(1f), singleLine = true)
+                Button(onClick = {
+                    if (xKeyword.isNotBlank()) {
+                        val query = xKeyword.trim() + " min_faves:" + (xMinLikes.toLongOrNull() ?: 0L)
+                        webView?.loadUrl("https://x.com/search?q=" + Uri.encode(query) + "&f=top")
+                        xStatus = "検索結果を表示します。表示された投稿だけを収集します。"
+                    }
+                }) { Text("検索") }
+            }
+            OutlinedButton(onClick = {
+                val web = webView
+                if (web == null) xStatus = "ページを開いてください"
+                else web.evaluateJavascript(XPostExtractor.script) { raw ->
+                    val decoded = readJavascriptString(raw)
+                    val found = XPostExtractor.parseJson(decoded)
+                    val threshold = xMinLikes.toLongOrNull() ?: 0L
+                    val selected = found.filter { it.likes >= threshold }
+                    val saved = popularPostMemory.saveAll(selected)
+                    xPosts = popularPostMemory.popular(threshold)
+                    xStatus = "画面内で検出: ${found.size}件 / 条件一致: ${selected.size}件 / 保存: ${saved}件（表示情報のみ）"
+                }
+            }, modifier = Modifier.fillMaxWidth()) { Text("表示中の人気投稿を記憶") }
+            Text(xStatus, style = MaterialTheme.typography.bodySmall)
+            Text("保存した人気投稿: ${xPosts.size}件", style = MaterialTheme.typography.bodySmall)
+            xPosts.take(5).forEach { post ->
+                Text("${post.likes} いいね  @${post.author}: ${post.text.take(75)}", style = MaterialTheme.typography.bodySmall)
+            }
         }
         Box(Modifier.weight(1f)) {
             AndroidView(factory = { ctx ->
