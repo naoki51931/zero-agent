@@ -287,12 +287,13 @@ class ChromeAssistService : AccessibilityService() {
                 child.recycle()
             }
             val label = if (own.isNotBlank()) own else children.joinToString(" ").take(120)
+            val closeControl = label.trim().matches(Regex("(?i)^(×|✕|✖|✗|x|close|dismiss|閉じる|とじる)$"))
             val rect = android.graphics.Rect()
             node.getBoundsInScreen(rect)
             if ((node.isClickable || node.isEditable || (own.isNotBlank() && node.childCount == 0)) && !rect.isEmpty && !node.isPassword &&
                 label.isNotBlank() && !protectedWords.containsMatchIn(label)) {
                 found.add(AccessibilityNodeInfo.obtain(node))
-                labels.add(label.take(120))
+                labels.add(if (closeControl) "閉じる (× / Close)" else label.take(120))
                 bounds.add(rect)
             }
             return label
@@ -319,7 +320,7 @@ class ChromeAssistService : AccessibilityService() {
                 val goal = if (automatic) runGoal else objectiveInput?.text?.toString()?.take(500).orEmpty().ifBlank { settings.get("objective") }
                 val currentUrl = visibleBrowserUrl()
                 val pageContext = "現在URL: ${currentUrl ?: "取得不可（推測禁止）"}\n" +
-                    "現在の画面に存在する候補だけを操作すること。すでに目標ページなら遷移ボタンを探さない。\n" +
+                    "現在の画面に存在する候補だけを操作すること。すでに目標ページなら遷移ボタンを探さない。ポップアップが操作を妨げている場合は、候補の閉じる/Close/×を優先する。購入・ログイン・同意は実行しない。\n" +
                     "候補一覧: " + inventory.toString() +
                     "\n過去の操作結果（正数は画面変化、負数は変化なし）: " + learnedHints(goal) +
                     "; お手本の操作順: " + demonstrationHints(goal) +
