@@ -70,11 +70,12 @@ class ChromeAssistService : AccessibilityService() {
         val status = TextView(this).apply { text = "ZERO AGENT: Chromeを開いてください" }
         message = status
         val consent = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        consent.addView(TextView(this).apply { text = "ChromeでZero Agentを使いますか？"; textSize = 16f })
+        consent.addView(TextView(this).apply { text = "Zero AgentはChromeの画面上に操作パネルを表示し、許可後に画面の操作候補を読み取ります。操作内容はAIへ送信される場合があります。使いますか？"; textSize = 16f })
         val choiceRow = LinearLayout(this)
         choiceRow.addView(Button(this).apply {
             text = "使う"
             setOnClickListener {
+                browserConsentShown = true
                 consent.visibility = android.view.View.GONE
                 message?.text = "Zero Agentを使用中。AIの操作提案を利用できます"
             }
@@ -82,6 +83,8 @@ class ChromeAssistService : AccessibilityService() {
         choiceRow.addView(Button(this).apply {
             text = "使わない"
             setOnClickListener {
+                browserConsentShown = false
+                chromeActive = false
                 consent.visibility = android.view.View.GONE
                 panel?.visibility = android.view.View.GONE
             }
