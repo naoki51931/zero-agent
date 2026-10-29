@@ -73,31 +73,30 @@ class ChromeAssistService : AccessibilityService() {
 
     private fun xSearchTerm(): String = xSearchTerms().firstOrNull().orEmpty()
 
-    /** Segment the requested subject dynamically; no topic-specific keyword constants. */
+    /** Parse a user instruction into search subjects; never search a URL or an imperative. */
     private fun xSearchTerms(): List<String> {
         val objective = objectiveInput?.text?.toString().orEmpty()
             .ifBlank { LocalSettings(this).get("objective") }.trim().take(500)
         if (objective.isBlank()) return emptyList()
-        val stored = researchQueryStore.find(objective)
-        if (stored.isNotEmpty()) return stored
+
         val subject = objective
-            .replace(Regex("https?://\\S+"), " ")
-            .replace(Regex("[、。,.!！?？\\n\\r]"), " ")
-            .split(Regex("\\s+"))
-            .filter { it.isNotBlank() }
-            .joinToString(" ")
-            .replace(Regex("(?:について|に関して|を対象に|を使って|で|を)(?:市場)?(?:調査|検索|分析|探す|探して|調べる|調べて|して|する|作成|制作|投稿).*$"), "")
+            .replace(Regex("""(?i)(?:https?://)?(?:www\.)?(?:x\.com|twitter\.com)(?:/\S*)?"""), " ")
+            .replace(Regex("""(?i)\b(?:https?://|www\.)\S+"""), " ")
+            .replace(Regex("""[、。,.!！?？\n\r]"""), " ")
+            .replace(Regex("""(?:市場調査|調査|検索|分析|探して|探す|調べて|調べる|投稿|制作|作成)(?:を)?(?:して|する|してください)?"""), " ")
+            .replace(Regex("""(?:してください|してほしい|して|する|お願い|について|に関して)"""), " ")
             .trim()
-        val segments = subject.split(Regex("(?:の|と|及び|および|\\s+)"))
-            .map { it.trim().replace(Regex("^(?:で|を|は|が|に|の)+|(?:の|を|は|が|に)+$"), "") }
-            .filter { it.length in 2..40 && !it.contains("://") }
-            .distinct()
-        val single = if (segments.isEmpty()) listOf(subject.take(60)) else segments.take(5)
-        val pairs = single.indices.flatMap { i ->
-            (i + 1 until single.size).map { j -> single[i] + " " + single[j] }
+        val segments = subject.split(Regex("""(?:の|と|及び|および|\s+|で|を|は|が|に)"""))
+            .map { it.trim() }
+            .filter { it.length in 2..40 && !it.contains("://") && !it.contains(".com") }
+            .distinct().take(5)
+        if (segments.isEmpty()) return emptyList()
+        val pairs = segments.indices.flatMap { i ->
+            (i + 1 until segments.size).map { j -> segments[i] + " " + segments[j] }
         }
-        val queries = (single + pairs).filter { it.length in 2..80 }.distinct().take(12)
-        researchQueryStore.remember(objective, queries)
+        val queries = (segments + pairs).distinct().take(12)
+        // Recompute on every run: older persisted phrases may contain malformed URL fragments.
+        researchQueryStore.replace(objective, queries)
         return queries
     }
 
