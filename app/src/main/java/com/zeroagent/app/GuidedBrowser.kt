@@ -25,6 +25,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 import org.json.JSONObject
 
 private val inventoryScript = """
@@ -41,7 +44,7 @@ private val inventoryScript = """
    const r=e.getBoundingClientRect();
    const close=/^(×|✕|✖|✗|x|close|dismiss|閉じる)$/i.test(t)||/^(close|dismiss|閉じる)/i.test(aria);
    return {id:i,tag:e.tagName,type:e.type||'',text:close?'Close popup (×)':(t||aria).slice(0,90),
-      aria:aria.slice(0,80),placeholder:(e.placeholder||'').slice(0,80),
+      aria:aria.slice(0,80),clickable:!!(e.closest('a,button,[role="button"]')),editable:e.matches('input:not([type=password]),textarea'),placeholder:(e.placeholder||'').slice(0,80),
       href:(e.getAttribute('href')||'').slice(0,100),x:Math.round(r.x),y:Math.round(r.y)};
  }));
 })()
@@ -114,6 +117,84 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
     var autoCapture by remember { mutableStateOf(true) }
     var lastCapturedUrl by remember { mutableStateOf("") }
     var guideVisible by remember { mutableStateOf(true) }
+    var autoRun by remember { mutableStateOf(false) }
+    var autoLog by remember { mutableStateOf("") }
+    suspend fun evaluate(web: WebView, script: String): String =
+        suspendCancellableCoroutine { continuation ->
+            web.evaluateJavascript(script) { value ->
+                if (continuation.isActive) continuation.resume(value)
+            }
+        }
+    fun readJavascriptString(raw: String): String =
+        try { org.json.JSONTokener(raw).nextValue() as? String ?: "" } catch (_: Exception) { "" }
+
+    // Only follow ordinary HTTPS links. No buttons, forms, posting, or credential entry.
+    fun safeLinkScript(selector: String): String {
+        val literal = JSONObject.quote(selector)
+        return """
+            (function(){
+              const e=document.querySelector($literal);
+              if(!e||!e.matches('a[href]'))return JSON.stringify({ok:false,reason:'not an anchor'});
+              if(e.closest('form')||e.hasAttribute('download'))return JSON.stringify({ok:false,reason:'unsafe context'});
+              const text=((e.innerText||'')+' '+(e.getAttribute('aria-label')||'')).toLowerCase();
+              if(/login|sign.?in|logout|purchase|pay|delete|submit|send|publish|投稿|送信|削除|購入|支払|ログイン|認証|captcha|同意|退会|フォロー/.test(text))return JSON.stringify({ok:false,reason:'protected action'});
+              const u=new URL(e.href,location.href);
+              if(u.protocol!=='https:'||u.username||u.password)return JSON.stringify({ok:false,reason:'unsafe URL'});
+              if(/(logout|delete|checkout|payment|purchase|submit|publish|unsubscribe)/i.test(u.pathname))return JSON.stringify({ok:false,reason:'protected URL'});
+              return JSON.stringify({ok:true,url:u.href});
+            })()
+        """.trimIndent()
+    }
+    LaunchedEffect(autoRun, index) {
+        if (!autoRun) return@LaunchedEffect
+        val web = webView ?: run { autoRun = false; return@LaunchedEffect }
+        val visited = mutableSetOf<String>()
+        var attempts = 0
+        while (autoRun && attempts < 5) {
+            try {
+                delay(1200)
+                val currentUrl = web.url.orEmpty()
+                val page = readJavascriptString(evaluate(web, inventoryScript))
+                val screen = readJavascriptString(evaluate(web, "(function(){return document.body.innerText.slice(0,5000)})()"))
+                val stage = steps.getOrElse(index) { objective }
+                if (BrowserAgent.verifyGoal(apiKey, model, stage, "URL: $currentUrl\\n$screen")) {
+                    autoLog = "工程の達成を検出。次の工程へ進む前に確認してください"
+                    break
+                }
+                val signature = currentUrl + ":" + page.hashCode()
+                if (!visited.add(signature)) {
+                    autoLog = "同じ画面が続いたため安全停止しました"
+                    break
+                }
+                val action = BrowserAgent.suggest(apiKey, model,
+                    "目的: $objective\\n現在の工程: $stage\\n現在URL: $currentUrl\\n公開情報の調査に必要な閲覧リンクだけを選んでください。入力や投稿はしない。",
+                    page)
+                if (action.type != "click") {
+                    autoLog = "安全な閲覧リンクが見つからないため停止しました"
+                    break
+                }
+                val outcome = JSONObject(readJavascriptString(evaluate(web, safeLinkScript(action.selector))))
+                if (!outcome.optBoolean("ok")) {
+                    autoLog = "保護された操作のため停止: " + outcome.optString("reason")
+                    break
+                }
+                val destination = outcome.getString("url")
+                if (!visited.add("url:" + destination)) {
+                    autoLog = "同じリンクへの再移動を防止して停止しました"
+                    break
+                }
+                web.loadUrl(destination)
+                attempts++
+                autoLog = "自動調査 $attempts/5: " + Uri.parse(destination).host.orEmpty()
+                delay(1800)
+            } catch (e: Exception) {
+                autoLog = "自動調査を停止: " + (e.message ?: "操作エラー")
+                break
+            }
+        }
+        autoRun = false
+    }
+
     fun moveToStep(stepIndex: Int) {
         val destination = destinationForStep(steps.getOrElse(stepIndex) { "" }) ?: return
         val currentHost = Uri.parse(webView?.url ?: lastWebsiteUrl).host.orEmpty()
@@ -216,6 +297,13 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
                     Text("ページ移動後に自動スクショ保存")
                 }
                 Text(steps.getOrElse(index) { "目標に必要な情報を調べる" })
+                Button(
+                    enabled = apiKey.isNotBlank() && model.isNotBlank(),
+                    onClick = { autoRun = !autoRun; if (autoRun) autoLog = "画面を観測して調査を開始します" },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text(if (autoRun) "自動調査を停止" else "この工程を自動調査（最大5ページ）") }
+                if (autoLog.isNotBlank()) Text(autoLog, style = MaterialTheme.typography.bodySmall)
+
                 OutlinedButton(
                     enabled = !busy,
                     onClick = {
