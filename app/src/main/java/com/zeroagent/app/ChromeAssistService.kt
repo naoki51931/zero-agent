@@ -79,7 +79,7 @@ class ChromeAssistService : AccessibilityService() {
             "同一CP" to Regex("同一\\s*[Cc][Pp]|同一カップリング"),
             "2人" to Regex("2人|二人|ふたり|双子|二体")
         ).filter { (_, pattern) -> pattern.containsMatchIn(objective) }
-            .map { (keyword, _) -> "\\\"$keyword\\\"" }
+            .map { (keyword, _) -> keyword }
         if (concepts.isNotEmpty()) return concepts.joinToString(" ")
         return objective
             .replace(Regex("(?i)https?://\\S+|x\\.com|seaart"), " ")
