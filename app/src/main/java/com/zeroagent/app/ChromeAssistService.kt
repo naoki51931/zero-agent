@@ -128,7 +128,7 @@ class ChromeAssistService : AccessibilityService() {
             // Prefer IME search action on the focused search field.
             val edit = items.firstOrNull { it.isEditable && it.isFocused && !it.isPassword }
                 ?: items.firstOrNull { it.isEditable && !it.isPassword }
-            if (edit != null && edit.performAction(AccessibilityNodeInfo.ACTION_IME_ENTER)) return true
+            if (edit != null && edit.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)) return true
             // X may expose a dedicated search button. Do not click unrelated submit actions.
             val searchButton = items.firstOrNull {
                 it.isClickable && !it.isEditable &&
