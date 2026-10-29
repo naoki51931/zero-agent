@@ -95,6 +95,8 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
     var xMinLikes by remember { mutableStateOf("1000") }
     var xPosts by remember { mutableStateOf(popularPostMemory.popular()) }
     var xStatus by remember { mutableStateOf("") }
+    var xCollecting by remember { mutableStateOf(false) }
+    var xTargetCount by remember { mutableStateOf("20") }
     fun openInBrowser(url: String) {
         val safeUrl = url.takeIf { it.startsWith("https://") || it.startsWith("http://") } ?: return
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(safeUrl)).addCategory(Intent.CATEGORY_BROWSABLE))
@@ -300,6 +302,45 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
                         xStatus = "検索結果を表示します。表示された投稿だけを収集します。"
                     }
                 }) { Text("検索") }
+            }
+            Row {
+                OutlinedTextField(value = xTargetCount, onValueChange = { xTargetCount = it.filter(Char::isDigit) },
+                    label = { Text("目標収集件数") }, singleLine = true, modifier = Modifier.weight(1f))
+                Button(enabled = !xCollecting, onClick = {
+                    val web = webView
+                    if (web == null) xStatus = "ページを開いてください"
+                    else {
+                        xCollecting = true
+                        scope.launch {
+                            try {
+                                val threshold = xMinLikes.toLongOrNull() ?: 0L
+                                val target = (xTargetCount.toIntOrNull() ?: 20).coerceIn(1, 100)
+                                val startHost = Uri.parse(web.url).host?.lowercase(Locale.ROOT)
+                                if (startHost !in setOf("x.com", "www.x.com", "twitter.com", "www.twitter.com")) {
+                                    xStatus = "X.comの検索結果を開いてください"
+                                } else {
+                                    var total = 0
+                                    var previous = -1
+                                    for (page in 1..5) {
+                                        val json = readJavascriptString(evaluate(web, XPostExtractor.script))
+                                        val matches = XPostExtractor.parseJson(json).filter { it.likes >= threshold }
+                                        total += popularPostMemory.saveAll(matches)
+                                        xPosts = popularPostMemory.popular(threshold)
+                                        xStatus = "調査 ${page}/5：保存 ${xPosts.size}件（今回の保存処理 ${total}件）"
+                                        if (xPosts.size >= target || xPosts.size == previous) break
+                                        previous = xPosts.size
+                                        evaluate(web, "(function(){window.scrollBy(0,Math.round(innerHeight*0.8));return 'ok'})()")
+                                        delay(1800)
+                                        if (Uri.parse(web.url).host?.lowercase(Locale.ROOT) != startHost) break
+                                    }
+                                    xStatus += "。完了（画面に表示された投稿のみ）"
+                                }
+                            } catch (e: Exception) {
+                                xStatus = "収集を停止: " + (e.message ?: "読み込みエラー")
+                            } finally { xCollecting = false }
+                        }
+                    }
+                }) { Text(if (xCollecting) "収集中" else "最大5画面収集") }
             }
             OutlinedButton(onClick = {
                 val web = webView
