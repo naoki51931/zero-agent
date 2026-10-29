@@ -217,7 +217,7 @@ class ChromeAssistService : AccessibilityService() {
 
     /** A conservative text relevance gate; screenshots still need visual review. */
     private fun hasRelevantResult(query: String): Boolean {
-        val words = query.split(Regex("""\\s+""")).filter { it.length >= 2 }
+        val words = query.split(Regex("\\s+")).filter { it.length >= 2 }
         if (words.isEmpty()) return false
         val labels = xNodes()
         return try {
