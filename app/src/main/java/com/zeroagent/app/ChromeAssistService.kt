@@ -117,6 +117,31 @@ class ChromeAssistService : AccessibilityService() {
         } finally { items.forEach { it.recycle() } }
     }
 
+    private fun xSubmitSearch(): Boolean {
+        val root = rootInActiveWindow ?: return false
+        if (root.packageName?.toString() != "com.twitter.android") {
+            root.recycle()
+            return false
+        }
+        val items = xNodes()
+        return try {
+            // Prefer IME search action on the focused search field.
+            val edit = items.firstOrNull { it.isEditable && it.isFocused && !it.isPassword }
+                ?: items.firstOrNull { it.isEditable && !it.isPassword }
+            if (edit != null && edit.performAction(AccessibilityNodeInfo.ACTION_IME_ENTER)) return true
+            // X may expose a dedicated search button. Do not click unrelated submit actions.
+            val searchButton = items.firstOrNull {
+                it.isClickable && !it.isEditable &&
+                    Regex("^(検索|Search|検索する|Search posts)$", RegexOption.IGNORE_CASE)
+                        .matches(xLabel(it))
+            }
+            searchButton?.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: false
+        } finally {
+            items.forEach { it.recycle() }
+            root.recycle()
+        }
+    }
+
     private fun xCollect(term: String): Int {
         val items = xNodes()
         return try { xResearchMemory.collect(term, items.map { xLabel(it) }.distinct()) }
@@ -148,9 +173,29 @@ class ChromeAssistService : AccessibilityService() {
                     memory.record("x.com", term, "search-input", "", "", "failed", "検索欄が見つからない")
                     return@launch
                 }
-                memory.record("x.com", term, "search-input", "", "filled", "unknown", "検索送信はユーザーが確定")
-                message?.text = "検索語を入力しました。Xで検索を確定してください。5秒後に収集開始"
-                delay(5000)
+                memory.record("x.com", term, "search-input", "", "filled", "success", "検索欄への入力が成功")
+                message?.text = "検索を自動確定しています"
+                delay(500)
+                if (!xResearchActive || token != xResearchToken) return@launch
+                val beforeSubmit = screenFingerprint().orEmpty()
+                val submitted = xSubmitSearch()
+                if (!submitted) {
+                    message?.text = "検索の自動確定に失敗しました。キーボードの検索を押して再実行してください"
+                    memory.record("x.com", term, "search-submit", beforeSubmit.take(80), "", "failed",
+                        "検索IMEアクション・検索ボタンが利用できない")
+                    return@launch
+                }
+                delay(1800)
+                if (!xResearchActive || token != xResearchToken) return@launch
+                val afterSubmit = screenFingerprint().orEmpty()
+                if (beforeSubmit == afterSubmit) {
+                    message?.text = "検索結果への遷移を確認できませんでした。Xの画面を確認してください"
+                    memory.record("x.com", term, "search-submit", beforeSubmit.take(80),
+                        afterSubmit.take(80), "unknown", "検索操作後に画面変化を確認できない")
+                    return@launch
+                }
+                memory.record("x.com", term, "search-submit", beforeSubmit.take(80),
+                    afterSubmit.take(80), "unknown", "画面変化あり。検索結果かは収集で確認")
                 for (page in 1..4) {
                     if (!xResearchActive || token != xResearchToken) return@launch
                     val before = screenFingerprint().orEmpty()
