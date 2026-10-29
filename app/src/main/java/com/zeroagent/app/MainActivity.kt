@@ -87,6 +87,22 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
     }
     val researchStore = remember { ResearchQueryStore(context) }
     var researchBackupMessage by remember { mutableStateOf("") }
+    val evidenceStore = remember { ResearchEvidenceStore(context) }
+    var evidenceMessage by remember { mutableStateOf("") }
+    val exportEvidenceReview = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.openOutputStream(uri, "wt")?.use { output ->
+                    output.write(evidenceStore.exportJson().toString(2).toByteArray(Charsets.UTF_8))
+                } ?: error("Cannot open destination")
+                evidenceMessage = "未検証の調査証拠一覧を書き出しました（画像本体は含まれません）"
+            } catch (e: Exception) {
+                evidenceMessage = "証拠一覧の保存失敗: " + (e.message ?: "不明なエラー")
+            }
+        }
+    }
     val exportResearch = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
@@ -201,6 +217,10 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
                     modifier = Modifier.fillMaxWidth()) { Text("ダウンロードから調査DBを復元") }
                 Text("保存時にファイル選択画面で「ダウンロード」を選んでください。アプリ削除前にバックアップが必要です。")
                 if (researchBackupMessage.isNotBlank()) Text(researchBackupMessage)
+                Button(onClick = { exportEvidenceReview.launch("zero-agent-evidence-review.json") },
+                    modifier = Modifier.fillMaxWidth()) { Text("未検証の調査証拠一覧を書き出す") }
+                Text("証拠一覧はJSON形式です。画像本体や復元機能は含まれません。")
+                if (evidenceMessage.isNotBlank()) Text(evidenceMessage)
 
                 Button(onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }) { Text("Chrome AI操作を有効化（ユーザー補助設定）") }
                 Text("Creator Agent: $status")
