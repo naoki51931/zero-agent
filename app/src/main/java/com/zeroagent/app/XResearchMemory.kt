@@ -45,6 +45,44 @@ class XResearchMemory(context: Context) {
     }
 
     @Synchronized
+    fun exportJson(): JSONObject = JSONObject()
+        .put("format", "zero-agent-x-memory-v1")
+        .put("entries", read())
+
+    /** Validate before merging; these are always unverified UI observations. */
+    @Synchronized
+    fun importJson(data: JSONObject): Int {
+        require(data.optString("format") == "zero-agent-x-memory-v1") { "Invalid memory backup" }
+        val input = data.optJSONArray("entries") ?: error("Missing memory entries")
+        require(input.length() <= 2000) { "Too many memory entries" }
+        val merged = mutableListOf<JSONObject>()
+        val seen = mutableSetOf<String>()
+        val original = read()
+        for (i in 0 until original.length()) {
+            val row = original.optJSONObject(i) ?: continue
+            if (seen.add(row.optString("term") + "|" + row.optString("text"))) merged.add(row)
+        }
+        var added = 0
+        for (i in 0 until input.length()) {
+            val row = input.optJSONObject(i) ?: error("Invalid memory row")
+            val term = row.optString("term")
+            val value = row.optString("text")
+            val likes = row.optLong("likes", -1)
+            require(term.isNotBlank() && term.length <= 60 && value.length in 12..280 &&
+                likes in 0..1000000000L) { "Invalid memory value" }
+            if (seen.add(term + "|" + value)) {
+                merged.add(JSONObject().put("term", term).put("text", value)
+                    .put("likes", likes).put("at", row.optLong("at", System.currentTimeMillis())))
+                added++
+            }
+        }
+        val result = JSONArray()
+        merged.takeLast(200).forEach { result.put(it) }
+        check(prefs.edit().putString("entries", result.toString()).commit()) { "Memory save failed" }
+        return added
+    }
+
+    @Synchronized
     fun count(term: String): Int {
         val a = read()
         return (0 until a.length()).count { a.optJSONObject(it)?.optString("term") == term }

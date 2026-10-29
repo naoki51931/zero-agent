@@ -49,6 +49,7 @@ object ResearchArchive {
             .put("format", "zero-agent-research-archive-v1")
             .put("version", 1)
             .put("queries", queries)
+            .put("x_memory", XResearchMemory(context).exportJson())
             .put("evidence", records)
             .put("images", mapping)
         context.contentResolver.openOutputStream(destination, "wt")?.use { stream ->
@@ -99,6 +100,21 @@ object ResearchArchive {
         val imageMap = manifest.getJSONObject("images")
         val evidence = manifest.getJSONArray("evidence")
         require(evidence.length() <= 10000 && imageMap.length() <= 10000) { "Too many records" }
+        val queriesJson = manifest.getJSONObject("queries")
+        require(queriesJson.optString("format") == "zero-agent-research-v1" &&
+            queriesJson.optJSONArray("queries") != null) { "Invalid query backup" }
+        val memoryJson = manifest.optJSONObject("x_memory")
+        if (memoryJson != null) require(
+            memoryJson.optString("format") == "zero-agent-x-memory-v1" &&
+                memoryJson.optJSONArray("entries") != null
+        ) { "Invalid X memory backup" }
+        for (i in 0 until evidence.length()) {
+            val record = evidence.optJSONObject(i) ?: error("Invalid evidence row")
+            val uri = record.optString("screenshot_uri")
+            require(uri.startsWith("content://") && imageMap.has(uri)) {
+                "Evidence screenshot is missing from backup"
+            }
+        }
         val restoredUris = mutableMapOf<String, String>()
         val created = mutableListOf<Uri>()
         try {
@@ -125,8 +141,9 @@ object ResearchArchive {
                 }, null, null)
                 restoredUris[oldUri] = uri.toString()
             }
-            val queryCount = ResearchQueryStore(context).importJson(manifest.getJSONObject("queries"))
+            val queryCount = ResearchQueryStore(context).importJson(queriesJson)
             val evidenceCount = ResearchEvidenceStore(context).importCaptured(evidence, restoredUris)
+            if (memoryJson != null) XResearchMemory(context).importJson(memoryJson)
             return queryCount to evidenceCount
         } catch (e: Exception) {
             created.forEach { runCatching { context.contentResolver.delete(it, null, null) } }
