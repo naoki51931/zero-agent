@@ -250,7 +250,9 @@ class ChromeAssistService : AccessibilityService() {
                     }
                 }
                 }
-                message?.text = "調査終了: " + xResearchMemory.summaryAll(terms)
+                if (xResearchActive && token == xResearchToken) {
+                    message?.text = "調査終了: " + xResearchMemory.summaryAll(terms)
+                }
             } catch (e: Exception) {
                 message?.text = "X調査エラー: " + e.message.orEmpty().take(100)
             } finally { xResearchActive = false }
