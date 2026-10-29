@@ -2,6 +2,17 @@ package com.zeroagent.app
 
 import android.accessibilityservice.AccessibilityService
 import android.graphics.PixelFormat
+import android.content.ContentValues
+import android.provider.MediaStore
+import android.os.Environment
+import android.graphics.Bitmap
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import java.io.File
+import java.io.FileOutputStream
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 import android.graphics.Path
 import android.accessibilityservice.GestureDescription
 import kotlinx.coroutines.delay
@@ -174,6 +185,68 @@ class ChromeAssistService : AccessibilityService() {
         finally { items.forEach { it.recycle() } }
     }
 
+    /** Screenshot evidence is a page capture, not proof of a particular post. */
+    private suspend fun captureResearchEvidence(): String? {
+        if (Build.VERSION.SDK_INT < 30) return null
+        return suspendCancellableCoroutine { continuation ->
+            takeScreenshot(android.view.Display.DEFAULT_DISPLAY, mainExecutor,
+                object : AccessibilityService.TakeScreenshotCallback {
+                    override fun onSuccess(result: AccessibilityService.ScreenshotResult) {
+                        try {
+                            val buffer = result.hardwareBuffer
+                            try {
+                                val hardware = Bitmap.wrapHardwareBuffer(buffer, result.colorSpace)
+                                    ?: error("Cannot decode screenshot")
+                                val bitmap = hardware.copy(Bitmap.Config.ARGB_8888, false)
+                                try {
+                                    val values = ContentValues().apply {
+                                        put(MediaStore.Downloads.DISPLAY_NAME, "zero_agent_x_" + System.currentTimeMillis() + ".png")
+                                        put(MediaStore.Downloads.MIME_TYPE, "image/png")
+                                        put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/ZeroAgent")
+                                        put(MediaStore.Downloads.IS_PENDING, 1)
+                                    }
+                                    val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                                        ?: error("Cannot create screenshot")
+                                    try {
+                                        contentResolver.openOutputStream(uri)?.use { stream ->
+                                            check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream))
+                                        } ?: error("Cannot write screenshot")
+                                        contentResolver.update(uri, ContentValues().apply {
+                                            put(MediaStore.Downloads.IS_PENDING, 0)
+                                        }, null, null)
+                                        if (continuation.isActive) continuation.resume(uri.toString())
+                                    } catch (e: Exception) {
+                                        contentResolver.delete(uri, null, null)
+                                        throw e
+                                    }
+                                } finally { bitmap.recycle() }
+                            } finally { buffer.close() }
+                        } catch (_: Exception) {
+                            if (continuation.isActive) continuation.resume(null)
+                        }
+                    }
+                    override fun onFailure(errorCode: Int) {
+                        if (continuation.isActive) continuation.resume(null)
+                    }
+                })
+        }
+    }
+
+    /** A conservative text relevance gate; screenshots still need visual review. */
+    private fun hasRelevantResult(query: String): Boolean {
+        val words = query.split(Regex("\\s+")).filter { it.length >= 2 }
+        if (words.isEmpty()) return false
+        val labels = xNodes()
+        return try {
+            labels.any { node ->
+                val label = xLabel(node)
+                !node.isEditable && label.length >= 12 &&
+                    words.all { label.contains(it, ignoreCase = true) } &&
+                    !label.contains("市場調査")
+            }
+        } finally { labels.forEach { it.recycle() } }
+    }
+
     private fun startXResearch() {
         if (xResearchActive) return
         val terms = xSearchTerms()
@@ -188,6 +261,8 @@ class ChromeAssistService : AccessibilityService() {
         scope.launch {
             val memory = EpisodeMemory(this@ChromeAssistService)
             try {
+                var verifiedCaptures = 0
+                var incomplete = false
                 for ((queryIndex, query) in terms.withIndex()) {
                 message?.text = "X検索 ${queryIndex + 1}/${terms.size}: $query"
                 val searchReady = xNodes().any { it.isEditable && !it.isPassword }
@@ -229,11 +304,16 @@ class ChromeAssistService : AccessibilityService() {
                 for (page in 1..4) {
                     if (!xResearchActive || token != xResearchToken) break
                     val before = screenFingerprint().orEmpty()
-                    val saved = xCollect(query)
+                    val relevant = hasRelevantResult(query)
+                    val screenshot = if (relevant) captureResearchEvidence() else null
+                    if (screenshot != null) verifiedCaptures++
+                    else incomplete = true
+                    val saved = if (screenshot != null) xCollect(query) else 0
+                    if (screenshot != null) memory.record("x.com", query, "screenshot", "", screenshot, "unknown", "Saved screen; post content unverified")
                     memory.record("x.com", query, "read-results", "", before.take(80),
                         if (saved > 0) "success" else "unknown",
                         if (saved > 0) "いいね数を含む候補を保存" else "候補を抽出できず")
-                    message?.text = "X調査 $page/4：今回 $saved 件、累計 " + xResearchMemory.count(query) + " 件"
+                    message?.text = "X調査 $page/4：関連テキスト ${if (relevant) "あり" else "なし"}、スクショ ${if (screenshot != null) "保存" else "未保存"}、候補 $saved 件"
                     if (page < 4) {
                         val root = rootInActiveWindow
                         if (root?.packageName?.toString() != "com.twitter.android") {
@@ -248,7 +328,11 @@ class ChromeAssistService : AccessibilityService() {
                 }
                 }
                 if (xResearchActive && token == xResearchToken) {
-                    message?.text = "調査終了: " + xResearchMemory.summaryAll(terms)
+                    message?.text = if (verifiedCaptures > 0 && !incomplete) {
+                         "調査未完了（画面証拠は保存済み・画像内容は未検証）: " + xResearchMemory.summaryAll(terms)
+                    } else {
+                        "調査未完了: 証拠保存・関連性検証が不足しています。保存済み画面 $verifiedCaptures 件"
+                    }
                 }
             } catch (e: Exception) {
                 message?.text = "X調査エラー: " + e.message.orEmpty().take(100)
