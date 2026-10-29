@@ -213,32 +213,26 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
                     "(function(){return document.body ? document.body.innerText.slice(0,5000) : ''})()"))
                 val sameHost = Uri.parse(newUrl).host == Uri.parse(currentUrl).host
                 val pageChanged = newUrl != currentUrl || newPage != page
-                // A changed page alone does not prove that the user's goal was achieved.
                 val goalReached = if (sameHost && pageChanged && newScreen.isNotBlank()) {
                     BrowserAgent.verifyGoal(apiKey, model, stage,
                         "URL: " + newUrl.substringBefore('?').substringBefore('#') + "\\n" + newScreen)
                 } else false
-                val result = when {
-                    !sameHost -> "failed"
-                    goalReached -> "success"
-                    !pageChanged -> "failed"
-                    else -> "unknown"
-                }
-                val reason = when {
-                    !sameHost -> "別ホストへ移動したため検証できません"
-                    goalReached -> "遷移後の画面から工程達成を検出"
-                    !pageChanged -> "画面とURLに変化がありません"
-                    else -> "画面は変化したが工程達成は未確認"
-                }
+                val verified = EpisodeOutcomeVerifier.classify(EpisodeOutcomeVerifier.Evidence(
+                    Uri.parse(currentUrl).host.orEmpty(), Uri.parse(newUrl).host.orEmpty(),
+                    currentUrl.substringBefore('?').substringBefore('#'),
+                    newUrl.substringBefore('?').substringBefore('#'),
+                    page, newPage, newScreen, goalReached))
+                val result = verified.outcome
+                val reason = verified.reason
                 episodeMemory.record(Uri.parse(currentUrl).host.orEmpty(), stage,
                     "navigate:" + Uri.parse(destination).path.orEmpty().take(100),
                     Uri.parse(currentUrl).path.orEmpty(), Uri.parse(newUrl).path.orEmpty(),
                     result, reason)
-                if (goalReached) {
+                if (result == "success") {
                     autoLog = "工程の達成を確認しました。次の工程へ進む前に確認してください"
                     break
                 }
-                if (!sameHost || !pageChanged) {
+                if (result == "failed") {
                     autoLog = reason + "。安全停止しました"
                     break
                 }
