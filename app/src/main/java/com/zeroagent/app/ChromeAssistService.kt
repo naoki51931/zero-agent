@@ -2,6 +2,9 @@ package com.zeroagent.app
 
 import android.accessibilityservice.AccessibilityService
 import android.graphics.PixelFormat
+import android.content.ContentValues
+import android.provider.MediaStore
+import android.os.Environment
 import android.graphics.Bitmap
 import android.os.Build
 import android.os.Handler
@@ -196,12 +199,26 @@ class ChromeAssistService : AccessibilityService() {
                                     ?: error("Cannot decode screenshot")
                                 val bitmap = hardware.copy(Bitmap.Config.ARGB_8888, false)
                                 try {
-                                    val folder = File(filesDir, "x_research_evidence").apply { mkdirs() }
-                                    val file = File(folder, "capture_" + System.currentTimeMillis() + ".png")
-                                    FileOutputStream(file).use { out ->
-                                        check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, out))
+                                    val values = ContentValues().apply {
+                                        put(MediaStore.Downloads.DISPLAY_NAME, "zero_agent_x_" + System.currentTimeMillis() + ".png")
+                                        put(MediaStore.Downloads.MIME_TYPE, "image/png")
+                                        put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/ZeroAgent")
+                                        put(MediaStore.Downloads.IS_PENDING, 1)
                                     }
-                                    if (continuation.isActive) continuation.resume(file.absolutePath)
+                                    val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                                        ?: error("Cannot create screenshot")
+                                    try {
+                                        contentResolver.openOutputStream(uri)?.use { stream ->
+                                            check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream))
+                                        } ?: error("Cannot write screenshot")
+                                        contentResolver.update(uri, ContentValues().apply {
+                                            put(MediaStore.Downloads.IS_PENDING, 0)
+                                        }, null, null)
+                                        if (continuation.isActive) continuation.resume(uri.toString())
+                                    } catch (e: Exception) {
+                                        contentResolver.delete(uri, null, null)
+                                        throw e
+                                    }
                                 } finally { bitmap.recycle() }
                             } finally { buffer.close() }
                         } catch (_: Exception) {
