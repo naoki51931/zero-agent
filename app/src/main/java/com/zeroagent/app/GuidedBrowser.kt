@@ -89,12 +89,19 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(safeUrl)).addCategory(Intent.CATEGORY_BROWSABLE))
     }
     var index by remember { mutableIntStateOf(0) }
-    val startUrl = remember(objective) {
-        when {
-            objective.contains("seaart", ignoreCase = true) -> "https://www.seaart.ai/"
-            objective.contains("pixai", ignoreCase = true) -> "https://pixai.art/"
-            else -> "https://www.google.com/"
+    fun destinationForStep(step: String): String? {
+        val t = step.lowercase(Locale.ROOT)
+        val x = t.contains("x.com") || t.contains("twitter") || t.contains("ツイッター") ||
+            t.contains("xで") || t.contains("xの") || t.contains("x上") || t.contains("xへ")
+        return when {
+            x -> "https://x.com/"
+            t.contains("seaart") || t.contains("シーアート") -> "https://www.seaart.ai/"
+            t.contains("pixai") -> "https://pixai.art/"
+            else -> null
         }
+    }
+    val startUrl = remember(steps) {
+        steps.firstNotNullOfOrNull { destinationForStep(it) } ?: "https://www.google.com/"
     }
     var input by remember(startUrl) { mutableStateOf(startUrl) }
     var lastWebsiteUrl by remember { mutableStateOf(startUrl) }
@@ -105,6 +112,18 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
     var autoCapture by remember { mutableStateOf(true) }
     var lastCapturedUrl by remember { mutableStateOf("") }
     var guideVisible by remember { mutableStateOf(true) }
+    fun moveToStep(stepIndex: Int) {
+        val destination = destinationForStep(steps.getOrElse(stepIndex) { "" }) ?: return
+        val currentHost = Uri.parse(webView?.url ?: lastWebsiteUrl).host.orEmpty()
+        val targetHost = Uri.parse(destination).host.orEmpty()
+        if (currentHost != targetHost) {
+            proposal = null
+            input = destination
+            webView?.loadUrl(destination)
+            message = "工程 " + (stepIndex + 1) + ": " + targetHost + " を開いています"
+        }
+    }
+
     DisposableEffect(Unit) { onDispose { webView?.destroy() } }
     BackHandler { if (webView?.canGoBack() == true) webView?.goBack() else onClose() }
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
@@ -276,8 +295,8 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
                 }
                 if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.bodySmall)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(enabled = index > 0, onClick = { index--; proposal = null }) { Text("前へ") }
-                    Button(onClick = { if (index < steps.lastIndex) { index++; proposal = null } else onClose() }) {
+                    OutlinedButton(enabled = index > 0, onClick = { index--; proposal = null; moveToStep(index) }) { Text("前へ") }
+                    Button(onClick = { if (index < steps.lastIndex) { index++; proposal = null; moveToStep(index) } else onClose() }) {
                         Text(if (index < steps.lastIndex) "次へ" else "完了")
                     }
                 }
