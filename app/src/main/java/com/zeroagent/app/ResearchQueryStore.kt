@@ -36,4 +36,52 @@ class ResearchQueryStore(context: Context) : SQLiteOpenHelper(context, "research
         }
         return rows
     }
+    fun exportJson(): org.json.JSONObject {
+        val entries = org.json.JSONArray()
+        readableDatabase.query("queries", arrayOf("objective", "phrase", "created_at"),
+            null, null, null, null, "id ASC").use { cursor ->
+            while (cursor.moveToNext()) {
+                entries.put(org.json.JSONObject()
+                    .put("objective", cursor.getString(0))
+                    .put("phrase", cursor.getString(1))
+                    .put("created_at", cursor.getLong(2)))
+            }
+        }
+        return org.json.JSONObject().put("format", "zero-agent-research-v1")
+            .put("version", 1).put("queries", entries)
+    }
+
+    /** Validate the entire document before starting a transaction; merge without deleting local data. */
+    fun importJson(data: org.json.JSONObject): Int {
+        require(data.optString("format") == "zero-agent-research-v1" && data.optInt("version") == 1) {
+            "Unsupported backup format"
+        }
+        val array = data.optJSONArray("queries") ?: throw IllegalArgumentException("Missing queries")
+        require(array.length() <= 10000) { "Too many entries" }
+        val rows = (0 until array.length()).map { index ->
+            val row = array.optJSONObject(index) ?: throw IllegalArgumentException("Invalid row")
+            val objective = row.optString("objective")
+            val phrase = row.optString("phrase")
+            require(objective.isNotBlank() && objective.length <= 500 &&
+                phrase.isNotBlank() && phrase.length <= 80) { "Invalid query" }
+            Triple(objective, phrase, row.optLong("created_at", System.currentTimeMillis()))
+        }
+        val db = writableDatabase
+        var added = 0
+        db.beginTransaction()
+        try {
+            for ((objective, phrase, createdAt) in rows) {
+                val values = android.content.ContentValues().apply {
+                    put("objective", objective)
+                    put("phrase", phrase)
+                    put("created_at", createdAt)
+                }
+                if (db.insertWithOnConflict("queries", null, values,
+                        SQLiteDatabase.CONFLICT_IGNORE) != -1L) added++
+            }
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+        return added
+    }
+
 }
