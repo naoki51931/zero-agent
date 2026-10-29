@@ -10,7 +10,7 @@ import java.util.UUID
 class EpisodeMemory(context: Context) {
     data class Episode(
         val id: String, val time: Long, val host: String, val goal: String,
-        val action: String, val before: String, val after: String, val outcome: String
+        val action: String, val before: String, val after: String, val outcome: String, val reason: String
     )
     private val file = File(context.filesDir, "agent_episodes.json")
     private val allowed = setOf("success", "failed", "unknown")
@@ -21,29 +21,29 @@ class EpisodeMemory(context: Context) {
             val o = array.optJSONObject(i) ?: return@mapNotNull null
             Episode(o.optString("id"), o.optLong("time"), o.optString("host"),
                 o.optString("goal"), o.optString("action"), o.optString("before"),
-                o.optString("after"), o.optString("outcome"))
+                o.optString("after"), o.optString("outcome"), o.optString("reason"))
         }
     } catch (_: Exception) { emptyList() }
 
     @Synchronized
-    fun record(host: String, goal: String, action: String, before: String, after: String, outcome: String) {
+    fun record(host: String, goal: String, action: String, before: String, after: String, outcome: String, reason: String = "") {
         require(outcome in allowed)
         val entry = Episode(UUID.randomUUID().toString(), System.currentTimeMillis(),
             host.take(120), goal.take(250), action.take(250),
-            before.take(160), after.take(160), outcome)
+            before.take(160), after.take(160), outcome, reason.take(240))
         val data = (readAll() + entry).takeLast(200)
         val json = JSONArray()
         data.forEach { e ->
             json.put(JSONObject().put("id", e.id).put("time", e.time)
                 .put("host", e.host).put("goal", e.goal).put("action", e.action)
-                .put("before", e.before).put("after", e.after).put("outcome", e.outcome))
+                .put("before", e.before).put("after", e.after).put("outcome", e.outcome).put("reason", e.reason))
         }
         file.writeText(json.toString())
     }
 
     @Synchronized
     fun recall(host: String, goal: String, limit: Int = 5): List<Episode> =
-        readAll().filter { it.host == host || it.goal.contains(goal.take(30), ignoreCase = true) }
+        readAll().filter { it.host == host || (goal.isNotBlank() && it.goal.contains(goal.take(30), ignoreCase = true)) }
             .sortedWith(compareByDescending<Episode> { it.host == host }
                 .thenByDescending { it.time }).take(limit)
 
