@@ -74,6 +74,17 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
     var balance by remember { mutableLongStateOf(wallet.getBalanceSats()) }
     var backupPassword by remember { mutableStateOf("") }
     var backupMessage by remember { mutableStateOf("") }
+    fun saveCurrentPlanToSettings() {
+        settings.put("objective", objective)
+        settings.put("lastPlan", result)
+        settings.put("lastPlanTitle", planTitle)
+        settings.put("planFollowupDraft", followupAnswer)
+        settings.put("apiKey", apiKey)
+        settings.put("model", model)
+        settings.put("provider", provider)
+        settings.put("reasoning", reasoning)
+        settings.put("mode", mode)
+    }
     val exportBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) {
             try {
@@ -94,6 +105,11 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
                 provider = settings.get("provider", "OpenAI")
                 reasoning = settings.get("reasoning", "high")
                 mode = settings.get("mode", "HYBRID")
+                result = settings.get("lastPlan", "")
+                planTitle = settings.get("lastPlanTitle", "")
+                followupAnswer = settings.get("planFollowupDraft", "")
+                guideSteps = if (result.isNotBlank()) stepsFromPlan(result) else emptyList()
+                planExpanded = result.isNotBlank()
                 backupMessage = "復元しました。モデル一覧は必要に応じて再取得してください"
             } catch (e: Exception) {
                 backupMessage = "復元失敗（パスワード・ファイルを確認）: ${e.message ?: "不明なエラー"}"
@@ -200,6 +216,22 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
                     if (planExpanded) {
                         Text("AIの提案", style = MaterialTheme.typography.titleMedium)
                         Text(result)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                enabled = backupPassword.length >= 12,
+                                onClick = {
+                                    saveCurrentPlanToSettings()
+                                    exportBackup.launch("zero-agent-settings.json")
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) { Text("企画を保存") }
+                            OutlinedButton(
+                                enabled = backupPassword.isNotEmpty(),
+                                onClick = { importBackup.launch(arrayOf("application/json", "application/octet-stream", "text/plain")) },
+                                modifier = Modifier.weight(1f)
+                            ) { Text("企画を読み込み") }
+                        }
+                        Text("下の外部バックアップ欄でパスワードを設定してください。企画・モデル・APIキーを暗号化してzero-agent-settings.jsonに保存します。", style = MaterialTheme.typography.bodySmall)
                         HorizontalDivider()
                         Text("AIからの質問に回答", style = MaterialTheme.typography.titleMedium)
                         Text("上の企画で聞かれた内容を入力し、回答を反映した企画を再生成できます。")
@@ -247,7 +279,7 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
 
                 HorizontalDivider()
                 Text("外部バックアップ（暗号化）", style = MaterialTheme.typography.titleLarge)
-                Text("APIキー・行動目標・モデル・AI系統・思考レベル・操作モードを、選んだ保存先に暗号化して書き出します。")
+                Text("APIキー・行動目標・モデル・AI系統・思考レベル・操作モード・現在の企画・回答下書きを、選んだ保存先に暗号化して書き出します。")
                 OutlinedTextField(
                     value = backupPassword,
                     onValueChange = { backupPassword = it },
@@ -257,7 +289,7 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
                 )
                 Button(
                     enabled = backupPassword.length >= 12,
-                    onClick = { exportBackup.launch("zero-agent-settings.json") },
+                    onClick = { saveCurrentPlanToSettings(); exportBackup.launch("zero-agent-settings.json") },
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("外部ファイルに暗号化保存") }
                 OutlinedButton(
