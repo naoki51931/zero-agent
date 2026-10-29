@@ -87,6 +87,22 @@ class ChromeAssistService : AccessibilityService() {
             .trim().replace(Regex("\\s+"), " ").take(60)
     }
 
+    private fun xSearchTerms(): List<String> {
+        val input = objectiveInput?.text?.toString().orEmpty()
+            .ifBlank { LocalSettings(this).get("objective") }
+        val concepts = listOf("同じ顔", "同一CP", "2人")
+            .filter { concept -> when (concept) {
+                "同じ顔" -> Regex("同じ顔|同顔|同一顔|同じ容姿").containsMatchIn(input)
+                "同一CP" -> Regex("同一\\s*[Cc][Pp]|同一カップリング").containsMatchIn(input)
+                else -> Regex("2人|二人|ふたり|双子|二体").containsMatchIn(input)
+            } }
+        if (concepts.isEmpty()) return listOf(xSearchTerm())
+        val pairs = concepts.indices.flatMap { i ->
+            (i + 1 until concepts.size).map { j -> concepts[i] + " " + concepts[j] }
+        }
+        return (concepts + pairs).distinct().take(6)
+    }
+
     private fun xNodes(): List<AccessibilityNodeInfo> {
         val root = rootInActiveWindow ?: return emptyList()
         if (root.packageName?.toString() != "com.twitter.android") { root.recycle(); return emptyList() }
@@ -163,7 +179,8 @@ class ChromeAssistService : AccessibilityService() {
 
     private fun startXResearch() {
         if (xResearchActive) return
-        val term = xSearchTerm()
+        val terms = xSearchTerms()
+        val term = terms.firstOrNull().orEmpty()
         if (term.length < 2) { message?.text = "調査キーワードを2文字以上入力してください"; return }
         val foreground = rootInActiveWindow
         val isX = foreground?.packageName?.toString() == "com.twitter.android"
@@ -174,55 +191,57 @@ class ChromeAssistService : AccessibilityService() {
         scope.launch {
             val memory = EpisodeMemory(this@ChromeAssistService)
             try {
+                for ((queryIndex, query) in terms.withIndex()) {
+                message?.text = "X検索 ${queryIndex + 1}/${terms.size}: $query"
                 val searchReady = xNodes().any { it.isEditable && !it.isPassword }
                 if (!searchReady && !xClickSearch()) {
                     message?.text = "検索タブが見つかりません。Xの検索画面を表示して再実行してください"
-                    memory.record("x.com", term, "search-tab", "", "", "failed", "検索タブが見つからない")
-                    return@launch
+                    memory.record("x.com", query, "search-tab", "", "", "failed", "検索タブが見つからない")
+                    break
                 }
                 if (!searchReady) delay(1000)
-                if (!xResearchActive || token != xResearchToken) return@launch
-                if (!xFillSearch(term)) {
+                if (!xResearchActive || token != xResearchToken) break
+                if (!xFillSearch(query)) {
                     message?.text = "検索欄を手動で開いてから再実行してください"
-                    memory.record("x.com", term, "search-input", "", "", "failed", "検索欄が見つからない")
-                    return@launch
+                    memory.record("x.com", query, "search-input", "", "", "failed", "検索欄が見つからない")
+                    break
                 }
-                memory.record("x.com", term, "search-input", "", "filled", "success", "検索欄への入力が成功")
+                memory.record("x.com", query, "search-input", "", "filled", "success", "検索欄への入力が成功")
                 message?.text = "検索を自動確定しています"
                 delay(500)
-                if (!xResearchActive || token != xResearchToken) return@launch
+                if (!xResearchActive || token != xResearchToken) break
                 val beforeSubmit = screenFingerprint().orEmpty()
                 val submitted = xSubmitSearch()
                 if (!submitted) {
                     message?.text = "検索の自動確定に失敗しました。キーボードの検索を押して再実行してください"
-                    memory.record("x.com", term, "search-submit", beforeSubmit.take(80), "", "failed",
+                    memory.record("x.com", query, "search-submit", beforeSubmit.take(80), "", "failed",
                         "検索IMEアクション・検索ボタンが利用できない")
-                    return@launch
+                    break
                 }
                 delay(1800)
-                if (!xResearchActive || token != xResearchToken) return@launch
+                if (!xResearchActive || token != xResearchToken) break
                 val afterSubmit = screenFingerprint().orEmpty()
                 if (beforeSubmit == afterSubmit) {
                     message?.text = "検索結果への遷移を確認できませんでした。Xの画面を確認してください"
-                    memory.record("x.com", term, "search-submit", beforeSubmit.take(80),
+                    memory.record("x.com", query, "search-submit", beforeSubmit.take(80),
                         afterSubmit.take(80), "unknown", "検索操作後に画面変化を確認できない")
-                    return@launch
+                    break
                 }
-                memory.record("x.com", term, "search-submit", beforeSubmit.take(80),
+                memory.record("x.com", query, "search-submit", beforeSubmit.take(80),
                     afterSubmit.take(80), "unknown", "画面変化あり。検索結果かは収集で確認")
                 for (page in 1..4) {
-                    if (!xResearchActive || token != xResearchToken) return@launch
+                    if (!xResearchActive || token != xResearchToken) break
                     val before = screenFingerprint().orEmpty()
-                    val saved = xCollect(term)
-                    memory.record("x.com", term, "read-results", "", before.take(80),
+                    val saved = xCollect(query)
+                    memory.record("x.com", query, "read-results", "", before.take(80),
                         if (saved > 0) "success" else "unknown",
                         if (saved > 0) "いいね数を含む候補を保存" else "候補を抽出できず")
-                    message?.text = "X調査 $page/4：今回 $saved 件、累計 " + xResearchMemory.count(term) + " 件"
+                    message?.text = "X調査 $page/4：今回 $saved 件、累計 " + xResearchMemory.count(query) + " 件"
                     if (page < 4) {
                         val root = rootInActiveWindow
                         if (root?.packageName?.toString() != "com.twitter.android") {
                             root?.recycle()
-                            return@launch
+                            break
                         }
                         val scrolled = root.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
                         root.recycle()
@@ -230,7 +249,8 @@ class ChromeAssistService : AccessibilityService() {
                         delay(1600)
                     }
                 }
-                message?.text = "調査終了: " + xResearchMemory.summary(term)
+                }
+                message?.text = "調査終了: " + xResearchMemory.summaryAll(terms)
             } catch (e: Exception) {
                 message?.text = "X調査エラー: " + e.message.orEmpty().take(100)
             } finally { xResearchActive = false }
@@ -321,7 +341,7 @@ class ChromeAssistService : AccessibilityService() {
         }
         val xResults = Button(this).apply {
             text = "X調査結果を見る"
-            setOnClickListener { message?.text = xResearchMemory.summary(xSearchTerm()) }
+            setOnClickListener { message?.text = xResearchMemory.summaryAll(xSearchTerms()) }
         }
         val stop = Button(this).apply { text = "停止"; setOnClickListener {
             autoRunning = false; runToken++; stepsRemaining = 0; recentActions.clear()
