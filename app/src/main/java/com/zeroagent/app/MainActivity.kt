@@ -51,6 +51,7 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
     var result by remember { mutableStateOf(settings.get("lastPlan", "")) }
     var planTitle by remember { mutableStateOf(settings.get("lastPlanTitle", "")) }
     var planExpanded by remember { mutableStateOf(false) }
+    var followupAnswer by remember { mutableStateOf(settings.get("planFollowupDraft", "")) }
     var guideSteps by remember { mutableStateOf<List<String>>(emptyList()) }
     fun stepsFromPlan(plan: String): List<String> {
         val lines = plan.lines().map { it.trim() }
@@ -124,6 +125,7 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
     LaunchedEffect(objective) { settings.put("objective", objective) }
     LaunchedEffect(result) { settings.put("lastPlan", result) }
     LaunchedEffect(planTitle) { settings.put("lastPlanTitle", planTitle) }
+    LaunchedEffect(followupAnswer) { settings.put("planFollowupDraft", followupAnswer) }
     LaunchedEffect(Unit) { if (result.isNotBlank()) guideSteps = stepsFromPlan(result) }
 
     LaunchedEffect(Unit) { loadModels() }
@@ -198,6 +200,44 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
                     if (planExpanded) {
                         Text("AIの提案", style = MaterialTheme.typography.titleMedium)
                         Text(result)
+                        HorizontalDivider()
+                        Text("AIからの質問に回答", style = MaterialTheme.typography.titleMedium)
+                        Text("上の企画で聞かれた内容を入力し、回答を反映した企画を再生成できます。")
+                        OutlinedTextField(
+                            value = followupAnswer,
+                            onValueChange = { followupAnswer = it },
+                            label = { Text("回答・追加指示") },
+                            placeholder = { Text("例：CP名は〇〇、参考アカウントは△△、画風はアニメ調") },
+                            minLines = 3,
+                            maxLines = 8,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Button(
+                            enabled = followupAnswer.isNotBlank() && status != "PLANNING" && apiKey.isNotBlank() && model.isNotBlank(),
+                            onClick = {
+                                val answer = followupAnswer.trim()
+                                val previousPlan = result.take(6000)
+                                scope.launch {
+                                    status = "PLANNING"
+                                    try {
+                                        val refinedGoal = objective + "\n\n前回の企画・AIの質問:\n" + previousPlan +
+                                            "\n\nユーザーからの回答・追加指示:\n" + answer +
+                                            "\n\n上記の回答を踏まえて、具体的な次のアクションを含む更新版企画を作成してください。"
+                                        val updated = openRouter.createPlan(apiKey, model, refinedGoal, reasoning)
+                                        result = updated
+                                        planTitle = titleFromPlan(updated, objective)
+                                        guideSteps = stepsFromPlan(updated)
+                                        followupAnswer = ""
+                                        planExpanded = true
+                                        status = "PLAN READY"
+                                    } catch (e: Exception) {
+                                        guideMessage = "回答の送信に失敗: ${e.message ?: "不明なエラー"}"
+                                        status = "FAILED"
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("回答を送って企画を更新") }
                         Button(onClick = { browserOpen = true }, enabled = guideSteps.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
                             Text("この企画をアプリ内ブラウザで進める")
                         }
