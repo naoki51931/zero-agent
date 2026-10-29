@@ -93,8 +93,10 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
         val t = step.lowercase(Locale.ROOT)
         val x = t.contains("x.com") || t.contains("twitter") || t.contains("ツイッター") ||
             t.contains("xで") || t.contains("xの") || t.contains("x上") || t.contains("xへ")
+        val research = t.contains("市場調査") || t.contains("競合調査") || t.contains("競合分析")
         return when {
             x -> "https://x.com/"
+            research && (objective.contains("x.com", true) || objective.contains("twitter", true)) -> "https://x.com/"
             t.contains("seaart") || t.contains("シーアート") -> "https://www.seaart.ai/"
             t.contains("pixai") -> "https://pixai.art/"
             else -> null
