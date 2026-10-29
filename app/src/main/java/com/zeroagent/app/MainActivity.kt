@@ -85,6 +85,39 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
         settings.put("reasoning", reasoning)
         settings.put("mode", mode)
     }
+    val researchStore = remember { ResearchQueryStore(context) }
+    var researchBackupMessage by remember { mutableStateOf("") }
+    val exportResearch = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.openOutputStream(uri, "wt")?.use { output ->
+                    output.write(researchStore.exportJson().toString(2).toByteArray(Charsets.UTF_8))
+                } ?: error("Cannot open destination")
+                researchBackupMessage = "調査DBを保存しました。アンインストール前にファイルを確認してください"
+            } catch (e: Exception) {
+                researchBackupMessage = "調査DB保存失敗: " + (e.message ?: "不明なエラー")
+            }
+        }
+    }
+    val importResearch = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                val data = context.contentResolver.openInputStream(uri)?.use { stream ->
+                    val bytes = stream.readBytes()
+                    require(bytes.size <= 5_000_000) { "Backup file is too large" }
+                    org.json.JSONObject(String(bytes, Charsets.UTF_8))
+                } ?: error("Cannot open backup")
+                val count = researchStore.importJson(data)
+                researchBackupMessage = "調査DBを復元しました（追加 $count 件、既存データは保持）"
+            } catch (e: Exception) {
+                researchBackupMessage = "調査DB復元失敗: " + (e.message ?: "不明なエラー")
+            }
+        }
+    }
     val exportBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) {
             try {
@@ -161,6 +194,14 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
         } else Scaffold { padding ->
             Column(Modifier.padding(padding).padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("ZERO AGENT", style = MaterialTheme.typography.headlineLarge)
+                Text("調査キーワードDB バックアップ", style = MaterialTheme.typography.titleMedium)
+                Button(onClick = { exportResearch.launch("zero-agent-research-backup.json") },
+                    modifier = Modifier.fillMaxWidth()) { Text("調査DBをダウンロードにバックアップ") }
+                Button(onClick = { importResearch.launch(arrayOf("application/json", "text/plain")) },
+                    modifier = Modifier.fillMaxWidth()) { Text("ダウンロードから調査DBを復元") }
+                Text("保存時にファイル選択画面で「ダウンロード」を選んでください。アプリ削除前にバックアップが必要です。")
+                if (researchBackupMessage.isNotBlank()) Text(researchBackupMessage)
+
                 Button(onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }) { Text("Chrome AI操作を有効化（ユーザー補助設定）") }
                 Text("Creator Agent: $status")
                 Text("操作モード: $mode")
