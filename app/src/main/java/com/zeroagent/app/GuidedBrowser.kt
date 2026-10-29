@@ -50,7 +50,18 @@ private val modalCloseScript = """
      return /^(×|✕|✖|✗|x)$/i.test(text)||/^(close|dismiss|閉じる)$/i.test(label);
    });
  const target=candidates.find(e=>e.closest('button,[role="button"]'))||candidates[0];
- if(!target)return JSON.stringify({found:false});
+ if(!target){
+   if(!/(^|\\.)seaart\\.ai$/i.test(location.hostname))return JSON.stringify({found:false});
+   const offer=elements.find(e=>visible(e)&&/Congratulations/.test((e.innerText||'').slice(0,120))&&e.getBoundingClientRect().width>innerWidth*.55);
+   if(!offer)return JSON.stringify({found:false});
+   const r=offer.getBoundingClientRect(), x=r.right-40, y=r.top+40;
+   if(x<0||x>=innerWidth||y<0||y>=innerHeight)return JSON.stringify({found:false});
+   const hit=document.elementFromPoint(x,y);
+   if(!hit||hit===document.body||hit===document.documentElement)return JSON.stringify({found:false});
+   const el=hit.closest('button,[role="button"]')||hit;
+   el.setAttribute('data-za-close','true');
+   return JSON.stringify({found:true,text:'SeaArt offer close'});
+ }
  const clickTarget=target.closest('button,[role="button"]')||target;
  const rect=clickTarget.getBoundingClientRect();
  const safe=rect.width>0&&rect.height>0&&rect.width<innerWidth*.25&&rect.height<innerHeight*.15;
