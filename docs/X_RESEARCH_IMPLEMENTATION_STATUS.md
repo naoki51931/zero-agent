@@ -83,3 +83,10 @@
 - `MainActivity.kt`: 検索キーワードを入力して「画像を選んでAI関連性判定（外部送信）」を押した場合に限り、ファイルピッカーで選択した画像を送信。自動送信はしない。
 - 判定結果は画面に参考表示のみ。**DBの`verified`への昇格、投稿URL/ID/いいね数の検証、自動巡回との連携は未実装**。選択モデルが画像入力非対応ならAPIエラーになる。
 - APKビルド・実機検証未実施。
+
+## 2026-10-30: Xスクリーンショットの自動AI判定（オプトイン）
+- メイン画面に自動判定スイッチを追加。初期値OFF。ONの場合に限り、X調査で撮影したPNGをOpenRouterへ自動送信する。画像には個人情報が映り得る。API課金・画像対応モデルが必要。
+- `ResearchVisionReviewer.reviewVerdict` で `screen_relevant` / `screen_unrelated` / `screen_uncertain` を返す。形式不明・API失敗は `screen_error` として記録。
+- `ResearchEvidenceStore` v2: `image_review`, `image_review_reason` を追加し、同一スクショURIの候補レコードへ画面単位のAI判定を保存。**投稿ID/URL・いいね数の検証とは別**であり `state=captured` のまま。
+- 既存のZIPエクスポートJSONには新フィールドが含まれるが、ZIP復元側は画面判定結果を再保存しない（引き続き未検証扱い）。
+- 実機テスト・ビルド未確認。AIの誤判定やスクショ内の指示文に注意。

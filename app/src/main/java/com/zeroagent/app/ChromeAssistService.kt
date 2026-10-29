@@ -323,6 +323,29 @@ class ChromeAssistService : AccessibilityService() {
                     if (screenshot != null) {
                         val candidateLabels = xEvidenceLabels(query)
                         val recorded = researchEvidenceStore.saveCaptured(query, screenshot, candidateLabels)
+                        if (LocalSettings(this@ChromeAssistService).get("autoVisionReview") == "true") {
+                            val settings = LocalSettings(this@ChromeAssistService)
+                            val key = settings.get("apiKey")
+                            val model = settings.get("model")
+                            val goal = objectiveInput?.text?.toString().orEmpty()
+                                .ifBlank { settings.get("objective") }
+                            try {
+                                if (key.isBlank() || model.isBlank()) {
+                                    researchEvidenceStore.saveScreenReview(screenshot, "screen_error",
+                                        "OpenRouter model or API key is not configured")
+                                } else {
+                                    message?.text = "X画像のAI関連性を判定中: $query"
+                                    val (verdict, reason) = ResearchVisionReviewer(this@ChromeAssistService)
+                                        .reviewVerdict(key, model, goal, query, screenshot)
+                                    researchEvidenceStore.saveScreenReview(screenshot, verdict, reason)
+                                    message?.text = "X画像AI判定: $verdict（投稿単位の検証は未完了）"
+                                }
+                            } catch (e: Exception) {
+                                researchEvidenceStore.saveScreenReview(screenshot, "screen_error",
+                                    e.message.orEmpty().take(200))
+                                message?.text = "X画像AI判定失敗: " + e.message.orEmpty().take(90)
+                            }
+                        }
                         memory.record("x.com", query, "screenshot", "", screenshot, "unknown",
                             "Screen captured; $recorded text candidates linked, unverified")
                     }

@@ -114,6 +114,7 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
             }
         }
     }
+    var autoVisionReview by remember { mutableStateOf(settings.get("autoVisionReview", "false") == "true") }
     var visionReviewStatus by remember { mutableStateOf("") }
     var visionQuery by remember { mutableStateOf("") }
     var visionReviewBusy by remember { mutableStateOf(false) }
@@ -272,6 +273,15 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
                     modifier = Modifier.fillMaxWidth()) { Text("未検証の調査証拠一覧を書き出す") }
                 Text("証拠一覧はJSON形式です。画像本体や復元機能は含まれません。")
                 if (evidenceMessage.isNotBlank()) Text(evidenceMessage)
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    Text("X調査時に画像をAIで自動判定（外部送信・API料金の可能性あり）",
+                        modifier = Modifier.weight(1f))
+                    Switch(checked = autoVisionReview, onCheckedChange = {
+                        autoVisionReview = it
+                        settings.put("autoVisionReview", it.toString())
+                    })
+                }
+                Text("有効時のみ、X調査で撮影した画像をOpenRouterへ自動送信します。画像に個人情報が映る可能性があります。モデルが画像入力に対応している必要があります。")
                 OutlinedTextField(value = visionQuery, onValueChange = { visionQuery = it.take(80) },
                     label = { Text("画像判定する検索キーワード") }, modifier = Modifier.fillMaxWidth())
                 Button(onClick = { chooseVisionScreenshot.launch(arrayOf("image/png")) },
