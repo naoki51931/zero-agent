@@ -89,6 +89,31 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
     var researchBackupMessage by remember { mutableStateOf("") }
     val evidenceStore = remember { ResearchEvidenceStore(context) }
     var evidenceMessage by remember { mutableStateOf("") }
+    var archiveMessage by remember { mutableStateOf("") }
+    val exportArchive = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri ->
+        if (uri != null) {
+            try {
+                val images = ResearchArchive.export(context, uri)
+                archiveMessage = "調査ZIPを保存しました（画像 $images 枚）。アンインストール前にファイルを確認してください"
+            } catch (e: Exception) {
+                archiveMessage = "調査ZIP保存失敗: " + (e.message ?: "不明なエラー")
+            }
+        }
+    }
+    val importArchive = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                val (queries, records) = ResearchArchive.restore(context, uri)
+                archiveMessage = "調査ZIPを復元しました（検索語 $queries 件、未検証証拠 $records 件）"
+            } catch (e: Exception) {
+                archiveMessage = "調査ZIP復元失敗: " + (e.message ?: "不明なエラー")
+            }
+        }
+    }
     val exportEvidenceReview = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
@@ -211,6 +236,12 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
             Column(Modifier.padding(padding).padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("ZERO AGENT", style = MaterialTheme.typography.headlineLarge)
                 Text("調査キーワードDB バックアップ", style = MaterialTheme.typography.titleMedium)
+                Button(onClick = { exportArchive.launch("zero-agent-research-full.zip") },
+                    modifier = Modifier.fillMaxWidth()) { Text("画像を含む調査ZIPをバックアップ") }
+                Button(onClick = { importArchive.launch(arrayOf("application/zip", "application/octet-stream")) },
+                    modifier = Modifier.fillMaxWidth()) { Text("調査ZIPを復元（再インストール後）") }
+                Text("ZIPはスクリーンショットを含みます。Downloadsなどアプリ外に保存してください。投稿の関連性は未検証です。")
+                if (archiveMessage.isNotBlank()) Text(archiveMessage)
                 Button(onClick = { exportResearch.launch("zero-agent-research-backup.json") },
                     modifier = Modifier.fillMaxWidth()) { Text("調査DBをダウンロードにバックアップ") }
                 Button(onClick = { importResearch.launch(arrayOf("application/json", "text/plain")) },
