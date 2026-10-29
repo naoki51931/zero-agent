@@ -1,6 +1,8 @@
 package com.zeroagent.app
 
 import android.os.Bundle
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import android.content.Intent
 import android.provider.Settings
 import androidx.compose.ui.platform.LocalContext
@@ -69,6 +71,35 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
     var browserOpen by remember { mutableStateOf(false) }
     var address by remember { mutableStateOf(wallet.getReceiveAddress() ?: "未作成") }
     var balance by remember { mutableLongStateOf(wallet.getBalanceSats()) }
+    var backupPassword by remember { mutableStateOf("") }
+    var backupMessage by remember { mutableStateOf("") }
+    val exportBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) {
+            try {
+                SettingsBackup.export(context, uri, backupPassword, settings)
+                backupMessage = "暗号化バックアップを保存しました"
+            } catch (e: Exception) {
+                backupMessage = "保存失敗: ${e.message ?: "不明なエラー"}"
+            }
+        }
+    }
+    val importBackup = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            try {
+                SettingsBackup.restore(context, uri, backupPassword, settings)
+                apiKey = settings.get("apiKey")
+                objective = settings.get("objective")
+                model = settings.get("model")
+                provider = settings.get("provider", "OpenAI")
+                reasoning = settings.get("reasoning", "high")
+                mode = settings.get("mode", "HYBRID")
+                backupMessage = "復元しました。モデル一覧は必要に応じて再取得してください"
+            } catch (e: Exception) {
+                backupMessage = "復元失敗（パスワード・ファイルを確認）: ${e.message ?: "不明なエラー"}"
+            }
+        }
+    }
+
 
     suspend fun loadModels() {
         status = "MODELS LOADING"
@@ -174,7 +205,29 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
                 }
                 if (guideMessage.isNotBlank()) Text(guideMessage)
 
-                Text("設定は端末内に暗号化保存し、次回起動時に復元します。モデル一覧は起動時に更新します。")
+                HorizontalDivider()
+                Text("外部バックアップ（暗号化）", style = MaterialTheme.typography.titleLarge)
+                Text("APIキー・行動目標・モデル・AI系統・思考レベル・操作モードを、選んだ保存先に暗号化して書き出します。")
+                OutlinedTextField(
+                    value = backupPassword,
+                    onValueChange = { backupPassword = it },
+                    label = { Text("バックアップ用パスワード（12文字以上）") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Button(
+                    enabled = backupPassword.length >= 12,
+                    onClick = { exportBackup.launch("zero-agent-settings.json") },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("外部ファイルに暗号化保存") }
+                OutlinedButton(
+                    enabled = backupPassword.isNotEmpty(),
+                    onClick = { importBackup.launch(arrayOf("application/json", "application/octet-stream", "text/plain")) },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("外部ファイルから復元") }
+                if (backupMessage.isNotBlank()) Text(backupMessage)
+                Text("バックアップ用パスワードを忘れると復元できません。ファイルとパスワードは別々に管理してください。")
+                Text("通常の設定は端末内に暗号化保存し、次回起動時に復元します。モデル一覧は起動時に更新します。")
             }
         }
     }
