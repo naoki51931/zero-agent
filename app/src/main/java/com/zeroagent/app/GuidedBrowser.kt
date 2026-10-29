@@ -21,12 +21,42 @@ import org.json.JSONObject
 
 private val inventoryScript = """
 (function(){
- const nodes=Array.from(document.querySelectorAll('a,button,input,textarea,[role="button"]')).slice(0,120);
+ const selectors='a,button,input,textarea,[role="button"],[aria-label],[title],svg,[data-testid]';
+ const nodes=Array.from(document.querySelectorAll(selectors)).filter(e=>{
+   const r=e.getBoundingClientRect(), st=getComputedStyle(e);
+   return r.width>0 && r.height>0 && st.visibility!=='hidden' && st.display!=='none';
+ }).slice(0,160);
  return JSON.stringify(nodes.map((e,i)=>{
    e.setAttribute('data-za-id',String(i));
-   return {id:i,tag:e.tagName,type:e.type||'',text:(e.innerText||e.getAttribute('aria-label')||'').slice(0,90),
-      placeholder:(e.placeholder||'').slice(0,80),href:(e.getAttribute('href')||'').slice(0,100)};
+   const t=(e.innerText||e.textContent||'').trim().slice(0,90);
+   const aria=(e.getAttribute('aria-label')||e.getAttribute('title')||'').trim();
+   const r=e.getBoundingClientRect();
+   const close=/^(×|✕|✖|✗|x|close|dismiss|閉じる)$/i.test(t)||/^(close|dismiss|閉じる)/i.test(aria);
+   return {id:i,tag:e.tagName,type:e.type||'',text:close?'Close popup (×)':(t||aria).slice(0,90),
+      aria:aria.slice(0,80),placeholder:(e.placeholder||'').slice(0,80),
+      href:(e.getAttribute('href')||'').slice(0,100),x:Math.round(r.x),y:Math.round(r.y)};
  }));
+})()
+""".trimIndent()
+
+private val modalCloseScript = """
+(function(){
+ const elements=Array.from(document.querySelectorAll('button,[role="button"],[aria-label],[title],svg,span,div'));
+ const visible=e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'};
+ const modal=elements.find(e=>visible(e)&&(e.matches('[role="dialog"],[aria-modal="true"]')||e.className&&typeof e.className==='string'&&/modal|popup|dialog/i.test(e.className))&&e.getBoundingClientRect().width>innerWidth*.45);
+ const candidates=(modal?Array.from(modal.querySelectorAll('button,[role="button"],[aria-label],[title],svg,span')):elements)
+   .filter(e=>visible(e)).filter(e=>{
+     const text=(e.innerText||e.textContent||'').trim(), label=(e.getAttribute('aria-label')||e.getAttribute('title')||'').trim();
+     return /^(×|✕|✖|✗|x)$/i.test(text)||/^(close|dismiss|閉じる)$/i.test(label);
+   });
+ const target=candidates.find(e=>e.closest('button,[role="button"]'))||candidates[0];
+ if(!target)return JSON.stringify({found:false});
+ const clickTarget=target.closest('button,[role="button"]')||target;
+ const rect=clickTarget.getBoundingClientRect();
+ const safe=rect.width>0&&rect.height>0&&rect.width<innerWidth*.25&&rect.height<innerHeight*.15;
+ if(!safe)return JSON.stringify({found:false});
+ clickTarget.setAttribute('data-za-close','true');
+ return JSON.stringify({found:true,text:'ポップアップを閉じる（×）'});
 })()
 """.trimIndent()
 
@@ -108,6 +138,36 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
                 }
                 Text("目標: $objective", style = MaterialTheme.typography.bodySmall)
                 Text(steps.getOrElse(index) { "目標に必要な情報を調べる" })
+                OutlinedButton(
+                    enabled = !busy,
+                    onClick = {
+                        val web = webView ?: return@OutlinedButton
+                        web.evaluateJavascript(modalCloseScript) { raw ->
+                            try {
+                                val parsed = org.json.JSONTokener(raw).nextValue() as String
+                                val found = JSONObject(parsed).optBoolean("found", false)
+                                if (!found) {
+                                    message = "閉じるボタンが見つかりません。画面の×を手動で押してください"
+                                } else {
+                                    web.evaluateJavascript("""
+                                        (function(){
+                                          const e=document.querySelector('[data-za-close="true"]');
+                                          if(!e)return '対象が変わりました';
+                                          e.removeAttribute('data-za-close');
+                                          e.click();
+                                          return 'ポップアップの閉じるボタンを押しました';
+                                        })()
+                                    """.trimIndent()) { outcome ->
+                                        proposal = null
+                                        message = outcome.trim('"')
+                                    }
+                                }
+                            } catch (e: Exception) { message = "閉じるボタンの確認に失敗しました" }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("ポップアップの×を閉じる") }
+
                 Button(modifier = Modifier.fillMaxWidth(), enabled = !busy && apiKey.isNotBlank() && model.isNotBlank(), onClick = {
                     val web = webView ?: return@Button
                     busy = true
@@ -118,7 +178,7 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
                             val inventory = org.json.JSONTokener(encoded).nextValue() as String
                             scope.launch {
                                 try {
-                                    val action = BrowserAgent.suggest(apiKey, model, "最終目標: $objective\\n現在の作業: ${steps.getOrElse(index) { "" }}", inventory)
+                                    val action = BrowserAgent.suggest(apiKey, model, "最終目標: $objective\\n現在の作業: ${steps.getOrElse(index) { "" }}。ポップアップが表示されている場合は閉じる候補を優先してください。", inventory)
                                     proposal = if (action.type == "none") null else action
                                     message = if (action.type == "none") "安全に自動操作できる対象が見つかりません" else "操作内容を確認して実行してください"
                                 } catch (e: Exception) { message = e.message ?: "解析エラー" }
