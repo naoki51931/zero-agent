@@ -69,10 +69,23 @@ class ChromeAssistService : AccessibilityService() {
     private var xResearchActive = false
     private var xResearchToken = 0
 
-    private fun xSearchTerm(): String =
-        objectiveInput?.text?.toString().orEmpty().ifBlank { LocalSettings(this).get("objective") }
-            .replace(Regex("(?i)x\\.com|市場調査|調査して|検索して|いいねの多い投稿|を探して|投稿して|seaart.*"), " ")
-            .trim().take(60)
+    // Extract searchable concepts instead of sending the user's entire instruction to X.
+    // Example: 「同じ顔の2人の同一CPの市場調査をして」 -> 「"同じ顔" "同一CP" "2人"」
+    private fun xSearchTerm(): String {
+        val objective = objectiveInput?.text?.toString().orEmpty()
+            .ifBlank { LocalSettings(this).get("objective") }.trim()
+        val concepts = listOf(
+            "同じ顔" to Regex("同じ顔|同顔|同一顔|同じ容姿"),
+            "同一CP" to Regex("同一\\s*[Cc][Pp]|同一カップリング"),
+            "2人" to Regex("2人|二人|ふたり|双子|二体")
+        ).filter { (_, pattern) -> pattern.containsMatchIn(objective) }
+            .map { (keyword, _) -> "\\\"$keyword\\\"" }
+        if (concepts.isNotEmpty()) return concepts.joinToString(" ")
+        return objective
+            .replace(Regex("(?i)https?://\\S+|x\\.com|seaart"), " ")
+            .replace(Regex("市場調査|調査して|検索して|探して|いいねの多い投稿|投稿して|作品制作|作成して|をして|してください|して|の"), " ")
+            .trim().replace(Regex("\\s+"), " ").take(60)
+    }
 
     private fun xNodes(): List<AccessibilityNodeInfo> {
         val root = rootInActiveWindow ?: return emptyList()
