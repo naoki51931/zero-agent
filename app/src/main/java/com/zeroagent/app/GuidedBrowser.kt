@@ -118,6 +118,7 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
     var lastCapturedUrl by remember { mutableStateOf("") }
     var guideVisible by remember { mutableStateOf(true) }
     var autoRun by remember { mutableStateOf(false) }
+    var autoStarted by remember { mutableStateOf(false) }
     var autoLog by remember { mutableStateOf("") }
     suspend fun evaluate(web: WebView, script: String): String =
         suspendCancellableCoroutine { continuation ->
@@ -139,7 +140,7 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
               const text=((e.innerText||'')+' '+(e.getAttribute('aria-label')||'')).toLowerCase();
               if(/login|sign.?in|logout|purchase|pay|delete|submit|send|publish|投稿|送信|削除|購入|支払|ログイン|認証|captcha|同意|退会|フォロー/.test(text))return JSON.stringify({ok:false,reason:'protected action'});
               const u=new URL(e.href,location.href);
-              if(u.protocol!=='https:'||u.username||u.password)return JSON.stringify({ok:false,reason:'unsafe URL'});
+              if(u.protocol!=='https:'||u.hostname!==location.hostname||u.username||u.password)return JSON.stringify({ok:false,reason:'unsafe URL'});
               if(/(logout|delete|checkout|payment|purchase|submit|publish|unsubscribe)/i.test(u.pathname))return JSON.stringify({ok:false,reason:'protected URL'});
               return JSON.stringify({ok:true,url:u.href});
             })()
@@ -196,6 +197,8 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
     }
 
     fun moveToStep(stepIndex: Int) {
+        autoRun = false
+        autoStarted = true
         val destination = destinationForStep(steps.getOrElse(stepIndex) { "" }) ?: return
         val currentHost = Uri.parse(webView?.url ?: lastWebsiteUrl).host.orEmpty()
         val targetHost = Uri.parse(destination).host.orEmpty()
@@ -243,6 +246,10 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
                             if (pageUrl != null) {
                                 input = pageUrl
                                 proposal = null
+                                if (!autoStarted && pageUrl.startsWith("https://") && apiKey.isNotBlank() && model.isNotBlank()) {
+                                    autoStarted = true
+                                    autoRun = true
+                                }
                                 if (Uri.parse(pageUrl).host != "accounts.google.com" && pageUrl.startsWith("https://")) lastWebsiteUrl = pageUrl
                                 if (autoCapture && pageUrl.startsWith("https://") && pageUrl != lastCapturedUrl) {
                                     val host = Uri.parse(pageUrl).host.orEmpty()
