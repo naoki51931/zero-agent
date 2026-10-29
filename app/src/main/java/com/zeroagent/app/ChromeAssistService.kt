@@ -69,38 +69,36 @@ class ChromeAssistService : AccessibilityService() {
     private var xResearchActive = false
     private var xResearchToken = 0
 
-    // Extract searchable concepts instead of sending the user's entire instruction to X.
-    // Example: 「同じ顔の2人の同一CPの市場調査をして」 -> 「"同じ顔" "同一CP" "2人"」
-    private fun xSearchTerm(): String {
-        val objective = objectiveInput?.text?.toString().orEmpty()
-            .ifBlank { LocalSettings(this).get("objective") }.trim()
-        val concepts = listOf(
-            "同じ顔" to Regex("同じ顔|同顔|同一顔|同じ容姿"),
-            "同一CP" to Regex("同一\\s*[Cc][Pp]|同一カップリング"),
-            "2人" to Regex("2人|二人|ふたり|双子|二体")
-        ).filter { (_, pattern) -> pattern.containsMatchIn(objective) }
-            .map { (keyword, _) -> keyword }
-        if (concepts.isNotEmpty()) return concepts.joinToString(" ")
-        return objective
-            .replace(Regex("(?i)https?://\\S+|x\\.com|seaart"), " ")
-            .replace(Regex("市場調査|調査して|検索して|探して|いいねの多い投稿|投稿して|作品制作|作成して|をして|してください|して|の"), " ")
-            .trim().replace(Regex("\\s+"), " ").take(60)
-    }
+    private val researchQueryStore by lazy { ResearchQueryStore(this) }
 
+    private fun xSearchTerm(): String = xSearchTerms().firstOrNull().orEmpty()
+
+    /** Segment the requested subject dynamically; no topic-specific keyword constants. */
     private fun xSearchTerms(): List<String> {
-        val input = objectiveInput?.text?.toString().orEmpty()
-            .ifBlank { LocalSettings(this).get("objective") }
-        val concepts = listOf("同じ顔", "同一CP", "2人")
-            .filter { concept -> when (concept) {
-                "同じ顔" -> Regex("同じ顔|同顔|同一顔|同じ容姿").containsMatchIn(input)
-                "同一CP" -> Regex("同一\\s*[Cc][Pp]|同一カップリング").containsMatchIn(input)
-                else -> Regex("2人|二人|ふたり|双子|二体").containsMatchIn(input)
-            } }
-        if (concepts.isEmpty()) return listOf(xSearchTerm())
-        val pairs = concepts.indices.flatMap { i ->
-            (i + 1 until concepts.size).map { j -> concepts[i] + " " + concepts[j] }
+        val objective = objectiveInput?.text?.toString().orEmpty()
+            .ifBlank { LocalSettings(this).get("objective") }.trim().take(500)
+        if (objective.isBlank()) return emptyList()
+        val stored = researchQueryStore.find(objective)
+        if (stored.isNotEmpty()) return stored
+        val subject = objective
+            .replace(Regex("https?://\\S+"), " ")
+            .replace(Regex("[、。,.!！?？\\n\\r]"), " ")
+            .split(Regex("\\s+"))
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
+            .replace(Regex("(?:について|に関して|を対象に|を使って|で|を)(?:市場)?(?:調査|検索|分析|探す|探して|調べる|調べて|して|する|作成|制作|投稿).*$"), "")
+            .trim()
+        val segments = subject.split(Regex("(?:の|と|及び|および|\\s+)"))
+            .map { it.trim().replace(Regex("^(?:で|を|は|が|に|の)+|(?:の|を|は|が|に)+$"), "") }
+            .filter { it.length in 2..40 && !it.contains("://") }
+            .distinct()
+        val single = if (segments.isEmpty()) listOf(subject.take(60)) else segments.take(5)
+        val pairs = single.indices.flatMap { i ->
+            (i + 1 until single.size).map { j -> single[i] + " " + single[j] }
         }
-        return (concepts + pairs).distinct().take(6)
+        val queries = (single + pairs).filter { it.length in 2..80 }.distinct().take(12)
+        researchQueryStore.remember(objective, queries)
+        return queries
     }
 
     private fun xNodes(): List<AccessibilityNodeInfo> {
