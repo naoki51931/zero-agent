@@ -261,11 +261,13 @@ class ChromeAssistService : AccessibilityService() {
         scope.launch {
             val memory = EpisodeMemory(this@ChromeAssistService)
             try {
-                var verifiedCaptures = 0
+                var capturedScreens = 0
                 var incomplete = false
                 for ((queryIndex, query) in terms.withIndex()) {
                 message?.text = "X検索 ${queryIndex + 1}/${terms.size}: $query"
-                val searchReady = xNodes().any { it.isEditable && !it.isPassword }
+                val searchNodes = xNodes()
+                val searchReady = try { searchNodes.any { it.isEditable && !it.isPassword } }
+                    finally { searchNodes.forEach { it.recycle() } }
                 if (!searchReady && !xClickSearch()) {
                     message?.text = "検索タブが見つかりません。Xの検索画面を表示して再実行してください"
                     memory.record("x.com", query, "search-tab", "", "", "failed", "検索タブが見つからない")
@@ -306,12 +308,12 @@ class ChromeAssistService : AccessibilityService() {
                     val before = screenFingerprint().orEmpty()
                     val relevant = hasRelevantResult(query)
                     val screenshot = if (relevant) captureResearchEvidence() else null
-                    if (screenshot != null) verifiedCaptures++
+                    if (screenshot != null) capturedScreens++
                     else incomplete = true
                     val saved = if (screenshot != null) xCollect(query) else 0
                     if (screenshot != null) memory.record("x.com", query, "screenshot", "", screenshot, "unknown", "Saved screen; post content unverified")
                     memory.record("x.com", query, "read-results", "", before.take(80),
-                        if (saved > 0) "success" else "unknown",
+                        "unknown",
                         if (saved > 0) "いいね数を含む候補を保存" else "候補を抽出できず")
                     message?.text = "X調査 $page/4：関連テキスト ${if (relevant) "あり" else "なし"}、スクショ ${if (screenshot != null) "保存" else "未保存"}、候補 $saved 件"
                     if (page < 4) {
@@ -328,10 +330,10 @@ class ChromeAssistService : AccessibilityService() {
                 }
                 }
                 if (xResearchActive && token == xResearchToken) {
-                    message?.text = if (verifiedCaptures > 0 && !incomplete) {
+                    message?.text = if (capturedScreens > 0 && !incomplete) {
                          "調査未完了（画面証拠は保存済み・画像内容は未検証）: " + xResearchMemory.summaryAll(terms)
                     } else {
-                        "調査未完了: 証拠保存・関連性検証が不足しています。保存済み画面 $verifiedCaptures 件"
+                        "調査未完了: 証拠保存・関連性検証が不足しています。保存済み画面 $capturedScreens 件"
                     }
                 }
             } catch (e: Exception) {
