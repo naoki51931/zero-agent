@@ -309,6 +309,7 @@ class ChromeAssistService : AccessibilityService() {
                     if (screenshot != null) verifiedCaptures++
                     else incomplete = true
                     val saved = if (screenshot != null) xCollect(query) else 0
+                    if (screenshot != null) memory.record("x.com", query, "screenshot", "", screenshot, "unknown", "Saved screen; post content unverified")
                     memory.record("x.com", query, "read-results", "", before.take(80),
                         if (saved > 0) "success" else "unknown",
                         if (saved > 0) "いいね数を含む候補を保存" else "候補を抽出できず")
