@@ -218,23 +218,18 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
                     BrowserAgent.verifyGoal(apiKey, model, stage,
                         "URL: " + newUrl.substringBefore('?').substringBefore('#') + "\\n" + newScreen)
                 } else false
-                val result = when {
-                    !sameHost -> "failed"
-                    goalReached -> "success"
-                    !pageChanged -> "failed"
-                    else -> "unknown"
-                }
-                val reason = when {
-                    !sameHost -> "別ホストへ移動したため検証できません"
-                    goalReached -> "遷移後の画面から工程達成を検出"
-                    !pageChanged -> "画面とURLに変化がありません"
-                    else -> "画面は変化したが工程達成は未確認"
-                }
+                val verified = EpisodeOutcomeVerifier.classify(EpisodeOutcomeVerifier.Evidence(
+                    Uri.parse(currentUrl).host.orEmpty(), Uri.parse(newUrl).host.orEmpty(),
+                    currentUrl.substringBefore('?').substringBefore('#'),
+                    newUrl.substringBefore('?').substringBefore('#'),
+                    page, newPage, newScreen, goalReached))
+                val result = verified.outcome
+                val reason = verified.reason
                 episodeMemory.record(Uri.parse(currentUrl).host.orEmpty(), stage,
                     "navigate:" + Uri.parse(destination).path.orEmpty().take(100),
                     Uri.parse(currentUrl).path.orEmpty(), Uri.parse(newUrl).path.orEmpty(),
                     result, reason)
-                if (goalReached) {
+                if (result == "success") {
                     autoLog = "工程の達成を確認しました。次の工程へ進む前に確認してください"
                     break
                 }
@@ -281,6 +276,12 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
                 }
             }, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("開く") }
         }
+        if (Uri.parse(input).host?.lowercase(Locale.ROOT) in setOf("x.com", "www.x.com", "twitter.com", "www.twitter.com")) {
+            Text("XのログインはChromeで行ってください。内蔵ブラウザとログイン状態は共有されません。",
+                style = MaterialTheme.typography.bodySmall)
+            Button(onClick = { openInBrowser("https://x.com/i/flow/login") },
+                modifier = Modifier.fillMaxWidth()) { Text("ChromeでXにログイン") }
+        }
         TextButton(onClick = { openInBrowser(lastWebsiteUrl) }, modifier = Modifier.fillMaxWidth()) {
             Text("このページをChromeなどのブラウザで開く（ログイン用）")
         }
@@ -290,6 +291,13 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
                     webViewClient = object : WebViewClient() {
+                        override fun onReceivedError(view: WebView?, request: WebResourceRequest?,
+                            error: android.webkit.WebResourceError?) {
+                            if (request?.isForMainFrame == true) {
+                                message = "ページを読み込めません: " + (error?.description ?: "通信エラー")
+                            }
+                        }
+
                         override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                             val uri = request?.url ?: return false
                             if (uri.scheme == "https" && uri.host == "accounts.google.com") {
