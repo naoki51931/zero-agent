@@ -320,6 +320,17 @@ class ChromeAssistService : AccessibilityService() {
                     "候補一覧: " + inventory.toString() +
                     "\n過去の操作結果（正数は画面変化、負数は変化なし）: " + learnedHints(goal) +
                     "; お手本の操作順: " + demonstrationHints(goal) +\n                    "; 過去の実行経験（画面変化は目標達成を意味しない）: " + experienceHints(goal)
+                // Verify the goal against the freshly observed controls, not against
+                // whether a click succeeded or the screen fingerprint changed.
+                if (automatic && BrowserAgent.verifyGoal(runKey, runModel, goal,
+                        "URL: ${currentUrl ?: "unknown"}; visible controls: ${inventory}")) {
+                    if (autoRunning && token == runToken) {
+                        autoRunning = false
+                        message?.text = "現在の画面から目標達成を確認しました。連続操作を終了します"
+                    }
+                    return@launch
+                }
+                if (automatic && (!autoRunning || token != runToken)) return@launch
                 val action = BrowserAgent.suggest(if (automatic) runKey else key, if (automatic) runModel else model,
                     "目標: $goal。Chrome画面の候補から安全なクリックまたは入力欄への入力を一つ選んでください。入力が必要な場合は目標に明示された一般的な検索語だけを使ってください。",
                     pageContext)
