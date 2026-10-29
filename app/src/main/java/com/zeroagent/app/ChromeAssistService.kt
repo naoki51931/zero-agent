@@ -319,7 +319,7 @@ class ChromeAssistService : AccessibilityService() {
                     "現在の画面に存在する候補だけを操作すること。すでに目標ページなら遷移ボタンを探さない。\n" +
                     "候補一覧: " + inventory.toString() +
                     "\n過去の操作結果（正数は画面変化、負数は変化なし）: " + learnedHints(goal) +
-                    "; お手本の操作順: " + demonstrationHints(goal)
+                    "; お手本の操作順: " + demonstrationHints(goal) +\n                    "; 過去の実行経験（画面変化は目標達成を意味しない）: " + experienceHints(goal)
                 val action = BrowserAgent.suggest(if (automatic) runKey else key, if (automatic) runModel else model,
                     "目標: $goal。Chrome画面の候補から安全なクリックまたは入力欄への入力を一つ選んでください。入力が必要な場合は目標に明示された一般的な検索語だけを使ってください。",
                     pageContext)
@@ -349,7 +349,7 @@ class ChromeAssistService : AccessibilityService() {
                             val before = screenFingerprint()
                             val succeeded = clickApproved(true)
                             val changed = succeeded && screenChanged(before)
-                            if (action.type == "click") learnClick(goal, learningLabel, changed && succeeded)
+                            if (action.type == "click") learnClick(goal, learningLabel, changed && succeeded)\n                            rememberOutcome(goal, learningLabel, action.type, when { !succeeded -> "failed"; changed -> "screen_changed"; else -> "no_change" })
                             stepsRemaining--
                             if (changed && stepsRemaining > 0 && autoRunning && token == runToken) {
                                 message?.text = "画面の変化を確認。次の操作を解析します"
@@ -436,6 +436,47 @@ class ChromeAssistService : AccessibilityService() {
         val key = (goal.trim().lowercase() + "|" + label.trim().lowercase()).take(180)
         val old = prefs.getInt(key, 0)
         prefs.edit().putInt(key, (old + if (changed) 1 else -1).coerceIn(-5, 10)).apply()
+    }
+
+    // Bounded device-local experience memory. Never persist entered values or full URLs.
+    private fun rememberOutcome(goal: String, label: String, type: String, outcome: String) {
+        if (goal.isBlank() || label.isBlank() || type !in listOf("click", "fill") ||
+            protectedWords.containsMatchIn(label)) return
+        val prefs = getSharedPreferences("agent_experience_v1", MODE_PRIVATE)
+        val old = try { JSONArray(prefs.getString("history", "[]")) } catch (_: Exception) { JSONArray() }
+        val history = JSONArray()
+        for (i in (old.length() - 79).coerceAtLeast(0) until old.length()) {
+            old.optJSONObject(i)?.let { history.put(it) }
+        }
+        val host = try {
+            val raw = visibleBrowserUrl().orEmpty()
+            val normalized = if (raw.contains("://")) raw else "https://$raw"
+            Uri.parse(normalized).host.orEmpty().take(120)
+        } catch (_: Exception) { "" }
+        history.put(JSONObject()
+            .put("goal", goal.trim().lowercase().take(120))
+            .put("host", host)
+            .put("label", label.take(80))
+            .put("action", type)
+            .put("outcome", outcome)
+            .put("at", System.currentTimeMillis()))
+        prefs.edit().putString("history", history.toString()).apply()
+    }
+
+    private fun experienceHints(goal: String): String {
+        if (goal.isBlank()) return ""
+        val raw = getSharedPreferences("agent_experience_v1", MODE_PRIVATE)
+            .getString("history", "[]")
+        val history = try { JSONArray(raw) } catch (_: Exception) { JSONArray() }
+        val normalized = goal.trim().lowercase().take(120)
+        val hints = mutableListOf<String>()
+        for (i in (history.length() - 1) downTo 0) {
+            val item = history.optJSONObject(i) ?: continue
+            if (item.optString("goal") != normalized) continue
+            hints.add("${item.optString("host")}: ${item.optString("action")} ${item.optString("label")} => ${item.optString("outcome")}")
+            if (hints.size == 8) break
+        }
+        return hints.joinToString("; ").take(1300)
     }
 
     private fun learnedHints(goal: String): String {
@@ -548,7 +589,7 @@ class ChromeAssistService : AccessibilityService() {
             root?.recycle()
             if (success && !automatic) scope.launch {
                 val changed = screenChanged(before)
-                if (action.type == "click") learnClick(learningGoal, learningLabel, changed)
+                if (action.type == "click") learnClick(learningGoal, learningLabel, changed)\n                rememberOutcome(learningGoal, learningLabel, action.type, if (changed) "screen_changed" else "no_change")
                 message?.text = if (changed) "画面変化を確認し、操作結果を学習しました" else "画面変化を確認できず、失敗候補として記録しました"
             }
             return success
