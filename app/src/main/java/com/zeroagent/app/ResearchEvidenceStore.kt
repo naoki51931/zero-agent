@@ -7,7 +7,7 @@ import android.database.sqlite.SQLiteOpenHelper
 
 /** Unverified evidence observations. Do not treat records as validated posts. */
 class ResearchEvidenceStore(context: Context) :
-    SQLiteOpenHelper(context, "research_evidence.db", null, 1) {
+    SQLiteOpenHelper(context, "research_evidence.db", null, 2) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("""
             CREATE TABLE evidence (
@@ -17,6 +17,8 @@ class ResearchEvidenceStore(context: Context) :
                 screenshot_uri TEXT NOT NULL,
                 post_url TEXT,
                 likes_estimate INTEGER,
+                image_review TEXT,
+                image_review_reason TEXT,
                 state TEXT NOT NULL DEFAULT 'captured',
                 reason TEXT NOT NULL,
                 created_at INTEGER NOT NULL,
@@ -25,7 +27,22 @@ class ResearchEvidenceStore(context: Context) :
         """.trimIndent())
         db.execSQL("CREATE INDEX evidence_query ON evidence(query)")
     }
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) {
+            db.execSQL("ALTER TABLE evidence ADD COLUMN image_review TEXT")
+            db.execSQL("ALTER TABLE evidence ADD COLUMN image_review_reason TEXT")
+        }
+    }
+
+    fun saveScreenReview(screenshotUri: String, verdict: String, reason: String): Int {
+        require(verdict in setOf("screen_relevant", "screen_unrelated", "screen_uncertain", "screen_error"))
+        val values = ContentValues().apply {
+            put("image_review", verdict)
+            put("image_review_reason", reason.take(500))
+        }
+        return writableDatabase.update("evidence", values,
+            "screenshot_uri=?", arrayOf(screenshotUri))
+    }
 
     fun saveCaptured(query: String, screenshotUri: String, candidates: List<String>): Int {
         require(query.isNotBlank() && screenshotUri.startsWith("content://"))
@@ -63,7 +80,7 @@ class ResearchEvidenceStore(context: Context) :
         val rows = org.json.JSONArray()
         readableDatabase.query("evidence",
             arrayOf("query", "candidate_text", "screenshot_uri", "post_url",
-                "likes_estimate", "state", "reason", "created_at"),
+                "likes_estimate", "state", "reason", "created_at", "image_review", "image_review_reason"),
             null, null, null, null, "id ASC").use { cursor ->
             while (cursor.moveToNext()) {
                 val row = org.json.JSONObject()
