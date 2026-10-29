@@ -6,6 +6,7 @@ import android.graphics.Canvas
 import android.os.Environment
 import java.io.File
 import java.io.FileOutputStream
+import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -115,6 +116,18 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
     var message by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var autoCapture by remember { mutableStateOf(true) }
+    var visionEnabled by remember { mutableStateOf(true) }
+    var visionResult by remember { mutableStateOf("") }
+    var visionBusy by remember { mutableStateOf(false) }
+    fun captureDir(): File = File(context.getExternalFilesDir(Environment.DIRECTORY_PICTURES), "ZeroAgent")
+    fun cleanupCaptures() {
+        val now = System.currentTimeMillis()
+        captureDir().listFiles()?.filter {
+            it.isFile && it.name.startsWith("page-") && it.name.endsWith(".png") &&
+                now - it.lastModified() >= 86_400_000L
+        }?.forEach { it.delete() }
+    }
+    LaunchedEffect(Unit) { cleanupCaptures() }
     var lastCapturedUrl by remember { mutableStateOf("") }
     var guideVisible by remember { mutableStateOf(true) }
     var autoRun by remember { mutableStateOf(false) }
@@ -266,10 +279,28 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
                                                     val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
                                                     try {
                                                         pageView.draw(Canvas(bitmap))
-                                                        val dir = File(context.getExternalFilesDir(Environment.DIRECTORY_PICTURES), "ZeroAgent")
+                                                        cleanupCaptures()
+                                                        val dir = captureDir()
                                                         if (!dir.exists()) dir.mkdirs()
                                                         val name = "page-" + SimpleDateFormat("yyyyMMdd-HHmmss-SSS", Locale.US).format(Date()) + ".png"
-                                                        FileOutputStream(File(dir, name)).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                                                        val bytes = ByteArrayOutputStream().use { stream ->
+                                                            bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+                                                            stream.toByteArray()
+                                                        }
+                                                        FileOutputStream(File(dir, name)).use { it.write(bytes) }
+                                                        if (visionEnabled && !visionBusy && apiKey.isNotBlank() && model.isNotBlank()) {
+                                                            visionBusy = true
+                                                            scope.launch {
+                                                                try {
+                                                                    visionResult = BrowserAgent.analyzeScreenshot(apiKey, model,
+                                                                        steps.getOrElse(index) { objective }, bytes)
+                                                                } catch (e: Exception) {
+                                                                    visionResult = "画像認識失敗: " + (e.message ?: "画像対応モデルを選択してください")
+                                                                } finally {
+                                                                    visionBusy = false
+                                                                }
+                                                            }
+                                                        }
                                                         message = "スクリーンショットを保存: " + name
                                                     } finally { bitmap.recycle() }
                                                 }
@@ -302,6 +333,15 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = autoCapture, onCheckedChange = { autoCapture = it })
                     Text("ページ移動後に自動スクショ保存")
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = visionEnabled, onCheckedChange = { visionEnabled = it })
+                    Text("スクショをAI画像認識に送信")
+                }
+                if (visionBusy) Text("画像認識中…", style = MaterialTheme.typography.bodySmall)
+                if (visionResult.isNotBlank()) Text(visionResult, style = MaterialTheme.typography.bodySmall)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("保存したスクショは24時間経過後、次回起動・ページ移動時に削除", style = MaterialTheme.typography.bodySmall)
                 }
                 Text(steps.getOrElse(index) { "目標に必要な情報を調べる" })
                 Button(
