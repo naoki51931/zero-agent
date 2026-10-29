@@ -64,6 +64,120 @@ class ChromeAssistService : AccessibilityService() {
         "com.twitter.android"
     )
     private fun isSupportedScreen(pkg: String?): Boolean = pkg in supportedPackages
+
+    private val xResearchMemory by lazy { XResearchMemory(this) }
+    private var xResearchActive = false
+    private var xResearchToken = 0
+
+    private fun xSearchTerm(): String =
+        objectiveInput?.text?.toString().orEmpty().ifBlank { LocalSettings(this).get("objective") }
+            .replace(Regex("(?i)x\\.com|市場調査|調査して|検索して|いいねの多い投稿|を探して|投稿して|seaart.*"), " ")
+            .trim().take(60)
+
+    private fun xNodes(): List<AccessibilityNodeInfo> {
+        val root = rootInActiveWindow ?: return emptyList()
+        if (root.packageName?.toString() != "com.twitter.android") { root.recycle(); return emptyList() }
+        val found = mutableListOf<AccessibilityNodeInfo>()
+        fun visit(node: AccessibilityNodeInfo, depth: Int) {
+            if (depth > 20 || found.size >= 180 || !node.isVisibleToUser) return
+            if (!node.isPassword && (node.isClickable || node.isEditable || node.text != null || node.contentDescription != null))
+                found.add(AccessibilityNodeInfo.obtain(node))
+            for (i in 0 until node.childCount) {
+                val child = node.getChild(i) ?: continue
+                visit(child, depth + 1)
+                child.recycle()
+            }
+        }
+        visit(root, 0)
+        root.recycle()
+        return found
+    }
+
+    private fun xLabel(n: AccessibilityNodeInfo) =
+        listOfNotNull(n.text?.toString(), n.contentDescription?.toString()).joinToString(" ").trim()
+
+    private fun xClickSearch(): Boolean {
+        val items = xNodes()
+        return try {
+            items.firstOrNull {
+                it.isClickable && Regex("^(検索|Search|Explore)(タブ)?$", RegexOption.IGNORE_CASE)
+                    .containsMatchIn(xLabel(it))
+            }?.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: false
+        } finally { items.forEach { it.recycle() } }
+    }
+
+    private fun xFillSearch(term: String): Boolean {
+        val items = xNodes()
+        return try {
+            val edit = items.firstOrNull { it.isEditable && !it.isPassword } ?: return false
+            val args = Bundle().apply {
+                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, term)
+            }
+            edit.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+        } finally { items.forEach { it.recycle() } }
+    }
+
+    private fun xCollect(term: String): Int {
+        val items = xNodes()
+        return try { xResearchMemory.collect(term, items.map { xLabel(it) }.distinct()) }
+        finally { items.forEach { it.recycle() } }
+    }
+
+    private fun startXResearch() {
+        if (xResearchActive) return
+        val term = xSearchTerm()
+        if (term.length < 2) { message?.text = "調査キーワードを2文字以上入力してください"; return }
+        val foreground = rootInActiveWindow
+        val isX = foreground?.packageName?.toString() == "com.twitter.android"
+        foreground?.recycle()
+        if (!isX) { message?.text = "X公式アプリを前面に開いてください"; return }
+        xResearchActive = true
+        val token = ++xResearchToken
+        scope.launch {
+            val memory = EpisodeMemory(this@ChromeAssistService)
+            try {
+                if (!xClickSearch()) {
+                    message?.text = "検索タブを手動で開いてから再実行してください"
+                    memory.record("x.com", term, "search-tab", "", "", "failed", "検索タブが見つからない")
+                    return@launch
+                }
+                delay(1000)
+                if (!xResearchActive || token != xResearchToken) return@launch
+                if (!xFillSearch(term)) {
+                    message?.text = "検索欄を手動で開いてから再実行してください"
+                    memory.record("x.com", term, "search-input", "", "", "failed", "検索欄が見つからない")
+                    return@launch
+                }
+                memory.record("x.com", term, "search-input", "", "filled", "unknown", "検索送信はユーザーが確定")
+                message?.text = "検索語を入力しました。Xで検索を確定してください。5秒後に収集開始"
+                delay(5000)
+                for (page in 1..4) {
+                    if (!xResearchActive || token != xResearchToken) return@launch
+                    val before = screenFingerprint().orEmpty()
+                    val saved = xCollect(term)
+                    memory.record("x.com", term, "read-results", "", before.take(80),
+                        if (saved > 0) "success" else "unknown",
+                        if (saved > 0) "いいね数を含む候補を保存" else "候補を抽出できず")
+                    message?.text = "X調査 $page/4：今回 $saved 件、累計 " + xResearchMemory.count(term) + " 件"
+                    if (page < 4) {
+                        val root = rootInActiveWindow
+                        if (root?.packageName?.toString() != "com.twitter.android") {
+                            root?.recycle()
+                            return@launch
+                        }
+                        val scrolled = root.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+                        root.recycle()
+                        if (!scrolled) break
+                        delay(1600)
+                    }
+                }
+                message?.text = "調査終了: " + xResearchMemory.summary(term)
+            } catch (e: Exception) {
+                message?.text = "X調査エラー: " + e.message.orEmpty().take(100)
+            } finally { xResearchActive = false }
+        }
+    }
+
     private val protectedWords = Regex("login|sign.in|password|checkout|purchase|payment|delete|send|publish|submit|consent|captcha|ログイン|認証|購入|支払|削除|送信|投稿|同意|パスワード", RegexOption.IGNORE_CASE)
 
     override fun onServiceConnected() {
@@ -142,8 +256,17 @@ class ChromeAssistService : AccessibilityService() {
                 analyze(true, runToken)
             }
         }
+        val xResearch = Button(this).apply {
+            text = "Xアプリで市場調査（閲覧のみ）"
+            setOnClickListener { startXResearch() }
+        }
+        val xResults = Button(this).apply {
+            text = "X調査結果を見る"
+            setOnClickListener { message?.text = xResearchMemory.summary(xSearchTerm()) }
+        }
         val stop = Button(this).apply { text = "停止"; setOnClickListener {
             autoRunning = false; runToken++; stepsRemaining = 0; recentActions.clear()
+            xResearchActive = false; xResearchToken++
             proposedIndex = null; proposedAction = null; approve?.isEnabled = false
             message?.text = "停止しました"
         } }
@@ -161,7 +284,7 @@ class ChromeAssistService : AccessibilityService() {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.TOP; y = (48 * resources.displayMetrics.density).toInt() }
-        val controls = listOf(status, objective, demoStart, demoStop, suggest, accept, auto, stop)
+        val controls = listOf(status, objective, demoStart, demoStop, suggest, accept, auto, xResearch, xResults, stop)
         var compact = false
         fun setCompact(value: Boolean) {
             compact = value
@@ -218,7 +341,7 @@ class ChromeAssistService : AccessibilityService() {
             text = "小さくする"
             setOnClickListener { setCompact(true) }
         }
-        layout.addView(dragHandle); layout.addView(consent); layout.addView(status); layout.addView(objective); layout.addView(demoStart); layout.addView(demoStop); layout.addView(suggest); layout.addView(accept); layout.addView(auto); layout.addView(stop); layout.addView(toggle)
+        layout.addView(dragHandle); layout.addView(consent); layout.addView(status); layout.addView(objective); layout.addView(demoStart); layout.addView(demoStop); layout.addView(suggest); layout.addView(accept); layout.addView(auto); layout.addView(xResearch); layout.addView(xResults); layout.addView(stop); layout.addView(toggle)
         manager.addView(layout, params)
         panel = layout
         setCompact(true)
