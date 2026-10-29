@@ -45,6 +45,7 @@ class ChromeAssistService : AccessibilityService() {
     private var autoRunning = false
     private var runToken = 0
     private var stepsRemaining = 0
+    private val recentActions = mutableSetOf<String>()
     private var runGoal = ""
     private var runKey = ""
     private var runModel = ""
@@ -126,12 +127,13 @@ class ChromeAssistService : AccessibilityService() {
                 if (runKey.isBlank() || runModel.isBlank()) { message?.text = "APIキーとモデルを設定してください"; return@setOnClickListener }
                 autoRunning = true
                 stepsRemaining = 5
+                recentActions.clear()
                 runToken++
                 analyze(true, runToken)
             }
         }
         val stop = Button(this).apply { text = "停止"; setOnClickListener {
-            autoRunning = false; runToken++; stepsRemaining = 0
+            autoRunning = false; runToken++; stepsRemaining = 0; recentActions.clear()
             proposedIndex = null; proposedAction = null; approve?.isEnabled = false
             message?.text = "停止しました"
         } }
@@ -324,19 +326,30 @@ class ChromeAssistService : AccessibilityService() {
                 if (automatic && (!autoRunning || token != runToken)) return@launch
                 val index = Regex("""\[data-za-id="([0-9]+)"\]""")
                     .matchEntire(action.selector)?.groupValues?.get(1)?.toIntOrNull()
+                if (action.type == "none") {
+                    autoRunning = false
+                    message?.text = "AIが次の安全な操作を見つけられませんでした: ${action.explanation.take(140)}。目標達成は未確認です"
+                    return@launch
+                }
                 if (action.type in listOf("click", "fill") && index != null && index in nodes.indices && (if (action.type == "fill") nodes[index].isEditable && action.value.length <= 300 else nodes[index].isClickable) && nodes[index].refresh() && nodes[index].isVisibleToUser) {
                     proposedAction = action
                     proposedIndex = index
                     message?.text = "AI提案: ${action.explanation}\n操作: ${action.type} / 対象: ${nodeLabels.getOrNull(index)}\n入力: ${if (action.type == "fill") action.value else "なし"}"
                     approve?.isEnabled = !automatic
                     if (automatic) {
+                        val actionSignature = "${currentUrl.orEmpty()}|${action.type}|${nodeLabels[index]}|${action.value}"
+                        if (!recentActions.add(actionSignature)) {
+                            autoRunning = false
+                            message?.text = "同じ操作の繰り返しを検出したため停止しました。画面と目標を確認してください"
+                            return@launch
+                        }
                         delay(650)
                         if (autoRunning && token == runToken) {
                             val learningLabel = nodeLabels.getOrNull(index).orEmpty()
                             val before = screenFingerprint()
                             val succeeded = clickApproved(true)
                             val changed = succeeded && screenChanged(before)
-                            if (succeeded && action.type == "click") learnClick(goal, learningLabel, changed)
+                            if (action.type == "click") learnClick(goal, learningLabel, changed && succeeded)
                             stepsRemaining--
                             if (changed && stepsRemaining > 0 && autoRunning && token == runToken) {
                                 message?.text = "画面の変化を確認。次の操作を解析します"
@@ -344,9 +357,12 @@ class ChromeAssistService : AccessibilityService() {
                                 analyze(true, token)
                             } else {
                                 autoRunning = false
-                                message?.text = if (succeeded && !changed)
-                                    "画面の変化を確認できないため、連続操作を停止しました"
-                                else "連続操作を終了しました"
+                                message?.text = when {
+                                    !succeeded -> "操作に失敗したため停止しました"
+                                    !changed -> "画面の変化を確認できないため、連続操作を停止しました"
+                                    stepsRemaining <= 0 -> "最大5回の操作を終了しました。目標達成は未確認です"
+                                    else -> "連続操作を停止しました。目標達成は未確認です"
+                                }
                             }
                         }
                     }
