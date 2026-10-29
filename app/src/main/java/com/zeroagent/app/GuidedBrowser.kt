@@ -92,7 +92,18 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
     val episodeMemory = remember { EpisodeMemory(context) }
     fun openInBrowser(url: String) {
         val safeUrl = url.takeIf { it.startsWith("https://") || it.startsWith("http://") } ?: return
-        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(safeUrl)).addCategory(Intent.CATEGORY_BROWSABLE))
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(safeUrl)).addCategory(Intent.CATEGORY_BROWSABLE)
+        // Prefer Chrome's own cookie jar for X authentication; never copy credentials into WebView.
+        try {
+            context.packageManager.getPackageInfo("com.android.chrome", 0)
+            intent.setPackage("com.android.chrome")
+            context.startActivity(intent)
+        } catch (_: Exception) {
+            intent.setPackage(null)
+            try { context.startActivity(intent) } catch (_: Exception) {
+                android.widget.Toast.makeText(context, "ブラウザを開けませんでした", android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
     }
     var index by remember { mutableIntStateOf(0) }
     fun destinationForStep(step: String): String? {
@@ -281,6 +292,12 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
                 }
             }, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("開く") }
         }
+        if (Uri.parse(input).host?.lowercase(Locale.ROOT) in setOf("x.com", "www.x.com", "twitter.com", "www.twitter.com")) {
+            Text("XのログインはChromeで行ってください。内蔵ブラウザとログイン状態は共有されません。", style = MaterialTheme.typography.bodySmall)
+            Button(onClick = { openInBrowser("https://x.com/i/flow/login") }, modifier = Modifier.fillMaxWidth()) {
+                Text("ChromeでXにログイン")
+            }
+        }
         TextButton(onClick = { openInBrowser(lastWebsiteUrl) }, modifier = Modifier.fillMaxWidth()) {
             Text("このページをChromeなどのブラウザで開く（ログイン用）")
         }
@@ -290,6 +307,12 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
                     webViewClient = object : WebViewClient() {
+                        override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: android.webkit.WebResourceError?) {
+                            if (request?.isForMainFrame == true) {
+                                message = "ページを読み込めません: " + (error?.description ?: "通信エラー")
+                            }
+                        }
+
                         override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                             val uri = request?.url ?: return false
                             if (uri.scheme == "https" && uri.host == "accounts.google.com") {
