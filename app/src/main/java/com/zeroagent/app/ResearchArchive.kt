@@ -75,7 +75,7 @@ object ResearchArchive {
                     val entry = zip.nextEntry ?: break
                     val name = entry.name
                     require(name == "manifest.json" ||
-                        Regex("""images/\\d+\\.png""").matches(name)) { "Unexpected ZIP entry" }
+                        Regex("images/[0-9]+[.]png").matches(name)) { "Unexpected ZIP entry" }
                     require(!entries.containsKey(name) && entries.size < 10001) { "Duplicate/too many ZIP entries" }
                     val output = ByteArrayOutputStream()
                     val buffer = ByteArray(8192)
