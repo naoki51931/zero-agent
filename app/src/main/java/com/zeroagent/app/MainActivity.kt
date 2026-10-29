@@ -204,7 +204,7 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
                 Text("使用モデル: ${model.ifBlank { "未選択" }}")
                 OutlinedTextField(value = objective, onValueChange = { objective = it }, label = { Text("目的") }, modifier = Modifier.fillMaxWidth())
                 Button(modifier = Modifier.fillMaxWidth().height(64.dp), enabled = status != "PLANNING" && apiKey.isNotBlank() && model.isNotBlank(), onClick = {
-                    scope.launch { status = "PLANNING"; try { result = openRouter.createPlan(apiKey, model, objective, reasoning); planTitle = titleFromPlan(result, objective); guideSteps = stepsFromPlan(result); planExpanded = true; status = "PLAN READY"; guideMessage = "Chromeを開き、次の操作を吹き出しで案内できます" } catch (e: Exception) { result = e.message ?: "エラー"; status = "FAILED" } }
+                    scope.launch { status = "PLANNING"; try { result = openRouter.createPlan(apiKey, model, objective, reasoning); planTitle = titleFromPlan(result, objective); guideSteps = stepsFromPlan(result); planExpanded = true; status = "PLAN READY"; guideMessage = "企画が完成したため、ブラウザを開いてページ移動・スクリーンショットを自動実行します"; browserOpen = true } catch (e: Exception) { result = e.message ?: "エラー"; status = "FAILED" } }
                 }) { Text("企画生成・拡散案を作る") }
                 if (result.isNotBlank()) {
                     ElevatedCard(onClick = { planExpanded = !planExpanded }, modifier = Modifier.fillMaxWidth()) {
@@ -262,6 +262,7 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
                                         followupAnswer = ""
                                         planExpanded = true
                                         status = "PLAN READY"
+                                        browserOpen = true
                                     } catch (e: Exception) {
                                         guideMessage = "回答の送信に失敗: ${e.message ?: "不明なエラー"}"
                                         status = "FAILED"

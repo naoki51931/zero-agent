@@ -1,6 +1,14 @@
 package com.zeroagent.app
 
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.os.Environment
+import java.io.File
+import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import android.net.Uri
 import androidx.compose.ui.platform.LocalContext
 import android.webkit.WebResourceRequest
@@ -94,6 +102,8 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
     var proposal by remember { mutableStateOf<BrowserAction?>(null) }
     var message by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    var autoCapture by remember { mutableStateOf(true) }
+    var lastCapturedUrl by remember { mutableStateOf("") }
     var guideVisible by remember { mutableStateOf(true) }
     DisposableEffect(Unit) { onDispose { webView?.destroy() } }
     BackHandler { if (webView?.canGoBack() == true) webView?.goBack() else onClose() }
@@ -128,7 +138,39 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
                             return false
                         }
                         override fun onPageFinished(view: WebView?, pageUrl: String?) {
-                            if (pageUrl != null) { input = pageUrl; proposal = null; if (Uri.parse(pageUrl).host != "accounts.google.com" && pageUrl.startsWith("https://")) lastWebsiteUrl = pageUrl }
+                            if (pageUrl != null) {
+                                input = pageUrl
+                                proposal = null
+                                if (Uri.parse(pageUrl).host != "accounts.google.com" && pageUrl.startsWith("https://")) lastWebsiteUrl = pageUrl
+                                if (autoCapture && pageUrl.startsWith("https://") && pageUrl != lastCapturedUrl) {
+                                    val host = Uri.parse(pageUrl).host.orEmpty()
+                                    // Never capture authentication, payment or other sensitive pages.
+                                    if (!Regex("(?i)(login|signin|account|checkout|payment|auth)").containsMatchIn(pageUrl) &&
+                                        host !in listOf("accounts.google.com", "login.microsoftonline.com")) {
+                                        lastCapturedUrl = pageUrl
+                                        val pageView = view ?: return
+                                        pageView.postDelayed({
+                                            try {
+                                                val w = pageView.width
+                                                val h = pageView.height
+                                                if (w > 0 && h > 0 && w.toLong() * h <= 8_000_000L) {
+                                                    val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                                                    try {
+                                                        pageView.draw(Canvas(bitmap))
+                                                        val dir = File(context.getExternalFilesDir(Environment.DIRECTORY_PICTURES), "ZeroAgent")
+                                                        if (!dir.exists()) dir.mkdirs()
+                                                        val name = "page-" + SimpleDateFormat("yyyyMMdd-HHmmss-SSS", Locale.US).format(Date()) + ".png"
+                                                        FileOutputStream(File(dir, name)).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                                                        message = "スクリーンショットを保存: " + name
+                                                    } finally { bitmap.recycle() }
+                                                }
+                                            } catch (e: Exception) {
+                                                message = "スクリーンショット保存失敗: " + (e.message ?: "不明なエラー")
+                                            }
+                                        }, 1300)
+                                    }
+                                }
+                            }
                         }
                     }
                     loadUrl(input)
@@ -148,6 +190,10 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
                     TextButton(onClick = { guideVisible = false }) { Text("隠す") }
                 }
                 Text("目標: $objective", style = MaterialTheme.typography.bodySmall)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = autoCapture, onCheckedChange = { autoCapture = it })
+                    Text("ページ移動後に自動スクショ保存")
+                }
                 Text(steps.getOrElse(index) { "目標に必要な情報を調べる" })
                 OutlinedButton(
                     enabled = !busy,
