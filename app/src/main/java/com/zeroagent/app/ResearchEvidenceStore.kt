@@ -83,4 +83,39 @@ class ResearchEvidenceStore(context: Context) :
             .put("records", rows)
     }
 
+    /** Merge restored evidence with newly-created image URIs, never mark it verified. */
+    fun importCaptured(records: org.json.JSONArray, imageUris: Map<String, String>): Int {
+        require(records.length() <= 10000) { "Too many evidence records" }
+        val validated = (0 until records.length()).map { i ->
+            val row = records.optJSONObject(i) ?: error("Invalid evidence record")
+            val query = row.optString("query")
+            val candidate = row.optString("candidate_text")
+            val oldUri = row.optString("screenshot_uri")
+            require(query.isNotBlank() && query.length <= 80 &&
+                candidate.isNotBlank() && candidate.length <= 1000 &&
+                oldUri.startsWith("content://")) { "Invalid evidence values" }
+            Triple(query, candidate, oldUri)
+        }
+        val db = writableDatabase
+        var added = 0
+        db.beginTransaction()
+        try {
+            for ((query, candidate, oldUri) in validated) {
+                val uri = imageUris[oldUri] ?: continue
+                val values = ContentValues().apply {
+                    put("query", query)
+                    put("candidate_text", candidate)
+                    put("screenshot_uri", uri)
+                    put("state", "captured")
+                    put("reason", "Restored screenshot and candidate; post relevance not verified")
+                    put("created_at", System.currentTimeMillis())
+                }
+                if (db.insertWithOnConflict("evidence", null, values,
+                        SQLiteDatabase.CONFLICT_IGNORE) != -1L) added++
+            }
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+        return added
+    }
+
 }
