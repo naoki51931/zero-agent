@@ -46,6 +46,8 @@ class ChromeAssistService : AccessibilityService() {
     private var runToken = 0
     private var stepsRemaining = 0
     private val recentActions = mutableSetOf<String>()
+    private var recoveryAttempts = 0
+    private val maxRecoveryAttempts = 1
     private var runGoal = ""
     private var runKey = ""
     private var runModel = ""
@@ -128,6 +130,7 @@ class ChromeAssistService : AccessibilityService() {
                 autoRunning = true
                 stepsRemaining = 5
                 recentActions.clear()
+                recoveryAttempts = 0
                 runToken++
                 analyze(true, runToken)
             }
@@ -284,12 +287,13 @@ class ChromeAssistService : AccessibilityService() {
                 child.recycle()
             }
             val label = if (own.isNotBlank()) own else children.joinToString(" ").take(120)
+            val closeControl = label.trim().matches(Regex("(?i)^(×|✕|✖|✗|x|close|dismiss|閉じる|とじる)$"))
             val rect = android.graphics.Rect()
             node.getBoundsInScreen(rect)
             if ((node.isClickable || node.isEditable || (own.isNotBlank() && node.childCount == 0)) && !rect.isEmpty && !node.isPassword &&
                 label.isNotBlank() && !protectedWords.containsMatchIn(label)) {
                 found.add(AccessibilityNodeInfo.obtain(node))
-                labels.add(label.take(120))
+                labels.add(if (closeControl) "閉じる (× / Close)" else label.take(120))
                 bounds.add(rect)
             }
             return label
@@ -316,10 +320,11 @@ class ChromeAssistService : AccessibilityService() {
                 val goal = if (automatic) runGoal else objectiveInput?.text?.toString()?.take(500).orEmpty().ifBlank { settings.get("objective") }
                 val currentUrl = visibleBrowserUrl()
                 val pageContext = "現在URL: ${currentUrl ?: "取得不可（推測禁止）"}\n" +
-                    "現在の画面に存在する候補だけを操作すること。すでに目標ページなら遷移ボタンを探さない。\n" +
+                    "現在の画面に存在する候補だけを操作すること。すでに目標ページなら遷移ボタンを探さない。ポップアップが操作を妨げている場合は、候補の閉じる/Close/×を優先する。購入・ログイン・同意は実行しない。\n" +
                     "候補一覧: " + inventory.toString() +
                     "\n過去の操作結果（正数は画面変化、負数は変化なし）: " + learnedHints(goal) +
-                    "; お手本の操作順: " + demonstrationHints(goal) +\n                    "; 過去の実行経験（画面変化は目標達成を意味しない）: " + experienceHints(goal)
+                    "; お手本の操作順: " + demonstrationHints(goal) +
+                    "; 過去の実行経験（画面変化は目標達成を意味しない）: " + experienceHints(goal)
                 // Verify the goal against the freshly observed controls, not against
                 // whether a click succeeded or the screen fingerprint changed.
                 if (automatic && BrowserAgent.verifyGoal(runKey, runModel, goal,
@@ -360,17 +365,30 @@ class ChromeAssistService : AccessibilityService() {
                             val before = screenFingerprint()
                             val succeeded = clickApproved(true)
                             val changed = succeeded && screenChanged(before)
-                            if (action.type == "click") learnClick(goal, learningLabel, changed && succeeded)\n                            rememberOutcome(goal, learningLabel, action.type, when { !succeeded -> "failed"; changed -> "screen_changed"; else -> "no_change" })
+                            if (action.type == "click") learnClick(goal, learningLabel, changed && succeeded)
+                            rememberOutcome(goal, learningLabel, action.type, when { !succeeded -> "failed"; changed -> "screen_changed"; else -> "no_change" })
                             stepsRemaining--
-                            if (changed && stepsRemaining > 0 && autoRunning && token == runToken) {
-                                message?.text = "画面の変化を確認。次の操作を解析します"
+                            val canContinue = succeeded && stepsRemaining > 0 &&
+                                autoRunning && token == runToken &&
+                                (changed || recoveryAttempts < maxRecoveryAttempts)
+                            if (canContinue) {
+                                if (!changed) {
+                                    // One bounded recovery: re-observe and ask for a DIFFERENT
+                                    // visible action. The existing recentActions guard prevents
+                                    // repeating the same URL/label/action/value combination.
+                                    recoveryAttempts++
+                                    message?.text = "画面変化なし。操作候補を再確認します（復旧1回まで）"
+                                } else {
+                                    recoveryAttempts = 0
+                                    message?.text = "画面の変化を確認。次の操作を解析します"
+                                }
                                 pending = false
                                 analyze(true, token)
                             } else {
                                 autoRunning = false
                                 message?.text = when {
                                     !succeeded -> "操作に失敗したため停止しました"
-                                    !changed -> "画面の変化を確認できないため、連続操作を停止しました"
+                                    !changed -> "画面変化なし。復旧回数の上限に達したため停止しました。目標達成は未確認です"
                                     stepsRemaining <= 0 -> "最大5回の操作を終了しました。目標達成は未確認です"
                                     else -> "連続操作を停止しました。目標達成は未確認です"
                                 }
@@ -600,7 +618,8 @@ class ChromeAssistService : AccessibilityService() {
             root?.recycle()
             if (success && !automatic) scope.launch {
                 val changed = screenChanged(before)
-                if (action.type == "click") learnClick(learningGoal, learningLabel, changed)\n                rememberOutcome(learningGoal, learningLabel, action.type, if (changed) "screen_changed" else "no_change")
+                if (action.type == "click") learnClick(learningGoal, learningLabel, changed)
+                rememberOutcome(learningGoal, learningLabel, action.type, if (changed) "screen_changed" else "no_change")
                 message?.text = if (changed) "画面変化を確認し、操作結果を学習しました" else "画面変化を確認できず、失敗候補として記録しました"
             }
             return success
