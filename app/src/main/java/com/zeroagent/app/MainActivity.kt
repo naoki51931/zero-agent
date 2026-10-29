@@ -220,9 +220,9 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
                                 scope.launch {
                                     status = "PLANNING"
                                     try {
-                                        val refinedGoal = objective + "\\n\\n前回の企画・AIの質問:\\n" + previousPlan +
-                                            "\\n\\nユーザーからの回答・追加指示:\\n" + answer +
-                                            "\\n\\n上記の回答を踏まえて、具体的な次のアクションを含む更新版企画を作成してください。"
+                                        val refinedGoal = objective + "\n\n前回の企画・AIの質問:\n" + previousPlan +
+                                            "\n\nユーザーからの回答・追加指示:\n" + answer +
+                                            "\n\n上記の回答を踏まえて、具体的な次のアクションを含む更新版企画を作成してください。"
                                         val updated = openRouter.createPlan(apiKey, model, refinedGoal, reasoning)
                                         result = updated
                                         planTitle = titleFromPlan(updated, objective)
