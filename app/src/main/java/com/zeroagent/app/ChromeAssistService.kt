@@ -161,12 +161,13 @@ class ChromeAssistService : AccessibilityService() {
         scope.launch {
             val memory = EpisodeMemory(this@ChromeAssistService)
             try {
-                if (!xClickSearch()) {
-                    message?.text = "検索タブを手動で開いてから再実行してください"
+                val searchReady = xNodes().any { it.isEditable && !it.isPassword }
+                if (!searchReady && !xClickSearch()) {
+                    message?.text = "検索タブが見つかりません。Xの検索画面を表示して再実行してください"
                     memory.record("x.com", term, "search-tab", "", "", "failed", "検索タブが見つからない")
                     return@launch
                 }
-                delay(1000)
+                if (!searchReady) delay(1000)
                 if (!xResearchActive || token != xResearchToken) return@launch
                 if (!xFillSearch(term)) {
                     message?.text = "検索欄を手動で開いてから再実行してください"
