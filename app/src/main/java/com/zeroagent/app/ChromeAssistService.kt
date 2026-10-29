@@ -35,6 +35,8 @@ class ChromeAssistService : AccessibilityService() {
     private var approve: Button? = null
     private var pending = false
     private var chromeActive = false
+    private val xPackages = setOf("com.twitter.android")
+    private val supportedPackages = setOf("com.android.chrome", "com.microsoft.emmx", "org.mozilla.firefox", "com.brave.browser", "com.sec.android.app.sbrowser", "com.opera.browser", "com.twitter.android")
     private var browserTransitionToken = 0
     private var browserConsentShown = false
     private var demonstrating = false
@@ -116,6 +118,10 @@ class ChromeAssistService : AccessibilityService() {
                 message?.text = "お手本を保存: " + demoSteps.length() + "操作"
             }
         }
+        val collectX = Button(this).apply {
+            text = "Xの表示投稿を記憶"
+            setOnClickListener { collectVisibleXPosts() }
+        }
         val suggest = Button(this).apply { text = "AIに操作を提案"; setOnClickListener { analyze() } }
         val accept = Button(this).apply { text = "提案を実行"; isEnabled = false; setOnClickListener { clickApproved() } }
         val auto = Button(this).apply {
@@ -154,7 +160,7 @@ class ChromeAssistService : AccessibilityService() {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.TOP; y = (48 * resources.displayMetrics.density).toInt() }
-        val controls = listOf(status, objective, demoStart, demoStop, suggest, accept, auto, stop)
+        val controls = listOf(status, objective, demoStart, demoStop, collectX, suggest, accept, auto, stop)
         var compact = false
         fun setCompact(value: Boolean) {
             compact = value
@@ -211,7 +217,7 @@ class ChromeAssistService : AccessibilityService() {
             text = "小さくする"
             setOnClickListener { setCompact(true) }
         }
-        layout.addView(dragHandle); layout.addView(consent); layout.addView(status); layout.addView(objective); layout.addView(demoStart); layout.addView(demoStop); layout.addView(suggest); layout.addView(accept); layout.addView(auto); layout.addView(stop); layout.addView(toggle)
+        layout.addView(dragHandle); layout.addView(consent); layout.addView(status); layout.addView(objective); layout.addView(demoStart); layout.addView(demoStop); layout.addView(collectX); layout.addView(suggest); layout.addView(accept); layout.addView(auto); layout.addView(stop); layout.addView(toggle)
         manager.addView(layout, params)
         panel = layout
         setCompact(true)
@@ -223,7 +229,7 @@ class ChromeAssistService : AccessibilityService() {
         if (event == null || event.packageName?.toString() == packageName) return
         if (demonstrating && (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED || event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED)) recordDemonstration(event)
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
-        val isChrome = event.packageName?.toString() in setOf("com.android.chrome", "com.microsoft.emmx", "org.mozilla.firefox", "com.brave.browser", "com.sec.android.app.sbrowser", "com.opera.browser")
+        val isChrome = event.packageName?.toString() in supportedPackages
         if (isChrome) {
             browserTransitionToken++
             if (!chromeActive) {
@@ -245,9 +251,7 @@ class ChromeAssistService : AccessibilityService() {
                 val foregroundPackage = foreground?.packageName?.toString()
                 foreground?.recycle()
                 if (foregroundPackage == null || foregroundPackage == packageName ||
-                    foregroundPackage in setOf("com.android.chrome", "com.microsoft.emmx",
-                        "org.mozilla.firefox", "com.brave.browser",
-                        "com.sec.android.app.sbrowser", "com.opera.browser")) return@launch
+                    foregroundPackage in supportedPackages) return@launch
                 chromeActive = false
                 browserConsentShown = false
                 panel?.visibility = android.view.View.GONE
@@ -258,6 +262,28 @@ class ChromeAssistService : AccessibilityService() {
                 runToken++
             }
         }
+    }
+
+    private fun collectVisibleXPosts() {
+        val root = rootInActiveWindow
+        if (root == null) {
+            message?.text = "画面情報を取得できません"
+            return
+        }
+        try {
+            val app = root.packageName?.toString().orEmpty()
+            if (app !in supportedPackages) {
+                message?.text = "ChromeまたはXアプリを開いてください"
+                return
+            }
+            val posts = XAccessibilityCollector.collect(root)
+            val saved = PopularPostMemory(this).saveAll(posts)
+            message?.text = if (posts.isEmpty())
+                "取得0件：投稿URLといいね数が同時に読み取れる表示が必要です。Xアプリでは取得できない場合があります"
+            else "表示中の投稿 ${posts.size}件を検出、${saved}件を記憶しました"
+        } catch (e: Exception) {
+            message?.text = "投稿の記憶に失敗: " + e.message.orEmpty().take(100)
+        } finally { root.recycle() }
     }
 
     private fun analyze(automatic: Boolean = false, token: Int = runToken) {
