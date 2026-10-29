@@ -57,6 +57,13 @@ class ChromeAssistService : AccessibilityService() {
     private var proposedIndex: Int? = null
     private var proposedAction: BrowserAction? = null
     private var objectiveInput: EditText? = null
+    // Browser and native X screens are supported only while they are foreground.
+    private val supportedPackages = setOf(
+        "com.android.chrome", "com.microsoft.emmx", "org.mozilla.firefox",
+        "com.brave.browser", "com.sec.android.app.sbrowser", "com.opera.browser",
+        "com.twitter.android"
+    )
+    private fun isSupportedScreen(pkg: String?): Boolean = pkg in supportedPackages
     private val protectedWords = Regex("login|sign.in|password|checkout|purchase|payment|delete|send|publish|submit|consent|captcha|ログイン|認証|購入|支払|削除|送信|投稿|同意|パスワード", RegexOption.IGNORE_CASE)
 
     override fun onServiceConnected() {
@@ -67,10 +74,10 @@ class ChromeAssistService : AccessibilityService() {
             setPadding(20, 12, 20, 12)
             setBackgroundColor(0xB8F2ECFA.toInt())
         }
-        val status = TextView(this).apply { text = "ZERO AGENT: Chromeを開いてください" }
+        val status = TextView(this).apply { text = "ZERO AGENT: ChromeまたはXを開いてください" }
         message = status
         val consent = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        consent.addView(TextView(this).apply { text = "ChromeでZero Agentを使いますか？"; textSize = 16f })
+        consent.addView(TextView(this).apply { text = "ChromeまたはXでZero Agentを使いますか？"; textSize = 16f })
         val choiceRow = LinearLayout(this)
         choiceRow.addView(Button(this).apply {
             text = "使う"
@@ -89,7 +96,7 @@ class ChromeAssistService : AccessibilityService() {
         consent.addView(choiceRow)
         consentPanel = consent
         val objective = EditText(this).apply {
-            hint = "Chromeで何をしたい？"
+            hint = "ChromeまたはXで何をしたい？"
             setSingleLine(true)
             setText(LocalSettings(this@ChromeAssistService).get("objective"))
         }
@@ -223,7 +230,7 @@ class ChromeAssistService : AccessibilityService() {
         if (event == null || event.packageName?.toString() == packageName) return
         if (demonstrating && (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED || event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED)) recordDemonstration(event)
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
-        val isChrome = event.packageName?.toString() in setOf("com.android.chrome", "com.microsoft.emmx", "org.mozilla.firefox", "com.brave.browser", "com.sec.android.app.sbrowser", "com.opera.browser")
+        val isChrome = isSupportedScreen(event.packageName?.toString())
         if (isChrome) {
             browserTransitionToken++
             if (!chromeActive) {
@@ -245,9 +252,7 @@ class ChromeAssistService : AccessibilityService() {
                 val foregroundPackage = foreground?.packageName?.toString()
                 foreground?.recycle()
                 if (foregroundPackage == null || foregroundPackage == packageName ||
-                    foregroundPackage in setOf("com.android.chrome", "com.microsoft.emmx",
-                        "org.mozilla.firefox", "com.brave.browser",
-                        "com.sec.android.app.sbrowser", "com.opera.browser")) return@launch
+                    isSupportedScreen(foregroundPackage)) return@launch
                 chromeActive = false
                 browserConsentShown = false
                 panel?.visibility = android.view.View.GONE
@@ -266,8 +271,8 @@ class ChromeAssistService : AccessibilityService() {
         proposedIndex = null
         approve?.isEnabled = false
         val root = rootInActiveWindow
-        if (root?.packageName?.toString() != "com.android.chrome") {
-            message?.text = "Chromeを開いてから実行してください"
+        if (!isSupportedScreen(root?.packageName?.toString())) {
+            message?.text = "ChromeまたはXアプリを開いてから実行してください"
             if (automatic) autoRunning = false
             return
         }
@@ -405,8 +410,8 @@ class ChromeAssistService : AccessibilityService() {
         proposedIndex = null
         approve?.isEnabled = false
         val root = rootInActiveWindow
-        if (root?.packageName?.toString() != "com.android.chrome") {
-            message?.text = "Chromeを開いてください"
+        if (!isSupportedScreen(root?.packageName?.toString())) {
+            message?.text = "ChromeまたはXアプリを開いてください"
             return
         }
         fun scroll(node: AccessibilityNodeInfo, depth: Int): Boolean {
@@ -426,7 +431,7 @@ class ChromeAssistService : AccessibilityService() {
     }
 
     private fun recordDemonstration(event: AccessibilityEvent) {
-        if (event.packageName?.toString() != "com.android.chrome" || demoSteps.length() >= 80) return
+        if (!isSupportedScreen(event.packageName?.toString()) || demoSteps.length() >= 80) return
         val now = android.os.SystemClock.uptimeMillis()
         if (now - demoLastEventAt < 300) return
         val source = event.source ?: return
@@ -521,7 +526,7 @@ class ChromeAssistService : AccessibilityService() {
 
     private fun visibleBrowserUrl(): String? {
         val root = rootInActiveWindow ?: return null
-        if (root.packageName?.toString() != "com.android.chrome") { root.recycle(); return null }
+        if (!isSupportedScreen(root.packageName?.toString())) { root.recycle(); return null }
         var url: String? = null
         fun walk(node: AccessibilityNodeInfo, depth: Int) {
             if (depth > 16 || url != null) return
@@ -547,7 +552,7 @@ class ChromeAssistService : AccessibilityService() {
 
     private fun screenFingerprint(): String? {
         val root = rootInActiveWindow ?: return null
-        if (root.packageName?.toString() != "com.android.chrome") { root.recycle(); return null }
+        if (!isSupportedScreen(root.packageName?.toString())) { root.recycle(); return null }
         val parts = mutableListOf<String>()
         fun visit(node: AccessibilityNodeInfo, depth: Int) {
             if (depth > 18 || parts.size >= 120) return
@@ -607,7 +612,7 @@ class ChromeAssistService : AccessibilityService() {
         val learningGoal = objectiveInput?.text?.toString().orEmpty().ifBlank { LocalSettings(this).get("objective") }
         val root = rootInActiveWindow
         val name = listOfNotNull(node.text?.toString(), node.contentDescription?.toString()).joinToString(" ")
-        if (root?.packageName?.toString() == "com.android.chrome" && node.refresh() &&
+        if (isSupportedScreen(root?.packageName?.toString()) && node.refresh() &&
             node.isVisibleToUser && (if (action.type == "fill") node.isEditable else !candidateBounds[index].isEmpty) && !node.isPassword &&
             !protectedWords.containsMatchIn(name)) {
             val success = if (action.type == "fill" && action.value.length <= 300) {
