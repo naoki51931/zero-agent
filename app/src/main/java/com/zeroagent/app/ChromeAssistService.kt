@@ -46,6 +46,8 @@ class ChromeAssistService : AccessibilityService() {
     private var runToken = 0
     private var stepsRemaining = 0
     private val recentActions = mutableSetOf<String>()
+    private var recoveryAttempts = 0
+    private val maxRecoveryAttempts = 1
     private var runGoal = ""
     private var runKey = ""
     private var runModel = ""
@@ -128,6 +130,7 @@ class ChromeAssistService : AccessibilityService() {
                 autoRunning = true
                 stepsRemaining = 5
                 recentActions.clear()
+                recoveryAttempts = 0
                 runToken++
                 analyze(true, runToken)
             }
@@ -362,15 +365,27 @@ class ChromeAssistService : AccessibilityService() {
                             val changed = succeeded && screenChanged(before)
                             if (action.type == "click") learnClick(goal, learningLabel, changed && succeeded)\n                            rememberOutcome(goal, learningLabel, action.type, when { !succeeded -> "failed"; changed -> "screen_changed"; else -> "no_change" })
                             stepsRemaining--
-                            if (changed && stepsRemaining > 0 && autoRunning && token == runToken) {
-                                message?.text = "画面の変化を確認。次の操作を解析します"
+                            val canContinue = succeeded && stepsRemaining > 0 &&
+                                autoRunning && token == runToken &&
+                                (changed || recoveryAttempts < maxRecoveryAttempts)
+                            if (canContinue) {
+                                if (!changed) {
+                                    // One bounded recovery: re-observe and ask for a DIFFERENT
+                                    // visible action. The existing recentActions guard prevents
+                                    // repeating the same URL/label/action/value combination.
+                                    recoveryAttempts++
+                                    message?.text = "画面変化なし。操作候補を再確認します（復旧1回まで）"
+                                } else {
+                                    recoveryAttempts = 0
+                                    message?.text = "画面の変化を確認。次の操作を解析します"
+                                }
                                 pending = false
                                 analyze(true, token)
                             } else {
                                 autoRunning = false
                                 message?.text = when {
                                     !succeeded -> "操作に失敗したため停止しました"
-                                    !changed -> "画面の変化を確認できないため、連続操作を停止しました"
+                                    !changed -> "画面変化なし。復旧回数の上限に達したため停止しました。目標達成は未確認です"
                                     stepsRemaining <= 0 -> "最大5回の操作を終了しました。目標達成は未確認です"
                                     else -> "連続操作を停止しました。目標達成は未確認です"
                                 }
