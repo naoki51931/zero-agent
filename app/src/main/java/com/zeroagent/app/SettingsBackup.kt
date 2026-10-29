@@ -13,7 +13,7 @@ import javax.crypto.spec.SecretKeySpec
 
 /** Password-protected external backup. The Android document picker controls file location. */
 object SettingsBackup {
-    private val names = listOf("apiKey", "objective", "model", "provider", "reasoning", "mode")
+    private val names = listOf("apiKey", "objective", "model", "provider", "reasoning", "mode", "lastPlan", "lastPlanTitle", "planFollowupDraft")
     private const val iterations = 210_000
     private const val maxBytes = 1024 * 1024
 
@@ -55,7 +55,7 @@ object SettingsBackup {
         val decoded = cipher.doFinal(Base64.decode(envelope.getString("data"), Base64.DEFAULT))
         val values = JSONObject(String(decoded, Charsets.UTF_8))
         // Validate all fields before modifying any local setting.
-        val restored = names.associateWith { values.getString(it) }
+        val restored = names.filter { values.has(it) }.associateWith { values.getString(it) }
         restored.forEach { (name, value) -> settings.put(name, value) }
     }
 
