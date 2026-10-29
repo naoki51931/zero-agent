@@ -148,14 +148,15 @@ fun GuidedBrowser(steps: List<String>, apiKey: String, model: String, objective:
                                     if (!Regex("(?i)(login|signin|account|checkout|payment|auth)").containsMatchIn(pageUrl) &&
                                         host !in listOf("accounts.google.com", "login.microsoftonline.com")) {
                                         lastCapturedUrl = pageUrl
-                                        view?.postDelayed({
+                                        val pageView = view ?: return
+                                        pageView.postDelayed({
                                             try {
-                                                val w = view.width
-                                                val h = view.height
+                                                val w = pageView.width
+                                                val h = pageView.height
                                                 if (w > 0 && h > 0 && w.toLong() * h <= 8_000_000L) {
                                                     val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
                                                     try {
-                                                        view.draw(Canvas(bitmap))
+                                                        pageView.draw(Canvas(bitmap))
                                                         val dir = File(context.getExternalFilesDir(Environment.DIRECTORY_PICTURES), "ZeroAgent")
                                                         if (!dir.exists()) dir.mkdirs()
                                                         val name = "page-" + SimpleDateFormat("yyyyMMdd-HHmmss-SSS", Locale.US).format(Date()) + ".png"
