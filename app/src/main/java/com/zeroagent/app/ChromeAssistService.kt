@@ -311,7 +311,7 @@ class ChromeAssistService : AccessibilityService() {
                 }
                 if (xResearchActive && token == xResearchToken) {
                     message?.text = if (verifiedCaptures > 0 && !incomplete) {
-                        "証拠保存済み（テキスト照合のみ・画像内容は未検証）: " + xResearchMemory.summaryAll(terms)
+                         "調査未完了（画面証拠は保存済み・画像内容は未検証）: " + xResearchMemory.summaryAll(terms)
                     } else {
                         "調査未完了: 証拠保存・関連性検証が不足しています。保存済み画面 $verifiedCaptures 件"
                     }
