@@ -28,6 +28,23 @@ class ResearchQueryStore(context: Context) : SQLiteOpenHelper(context, "research
         } finally { db.endTransaction() }
     }
 
+    fun replace(objective: String, phrases: List<String>) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.delete("queries", "objective = ?", arrayOf(objective.take(500)))
+            for (phrase in phrases.distinct().take(12)) {
+                val values = android.content.ContentValues().apply {
+                    put("objective", objective.take(500))
+                    put("phrase", phrase.take(80))
+                    put("created_at", System.currentTimeMillis())
+                }
+                db.insertWithOnConflict("queries", null, values, SQLiteDatabase.CONFLICT_IGNORE)
+            }
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+    }
+
     fun find(objective: String): List<String> {
         val rows = mutableListOf<String>()
         readableDatabase.query("queries", arrayOf("phrase"), "objective = ?",
