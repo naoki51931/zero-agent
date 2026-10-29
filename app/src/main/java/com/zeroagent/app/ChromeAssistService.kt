@@ -77,6 +77,7 @@ class ChromeAssistService : AccessibilityService() {
     private fun isSupportedScreen(pkg: String?): Boolean = pkg in supportedPackages
 
     private val xResearchMemory by lazy { XResearchMemory(this) }
+    private val researchEvidenceStore by lazy { ResearchEvidenceStore(this) }
     private var xResearchActive = false
     private var xResearchToken = 0
 
@@ -311,7 +312,22 @@ class ChromeAssistService : AccessibilityService() {
                     if (screenshot != null) capturedScreens++
                     else incomplete = true
                     val saved = if (screenshot != null) xCollect(query) else 0
-                    if (screenshot != null) memory.record("x.com", query, "screenshot", "", screenshot, "unknown", "Saved screen; post content unverified")
+                    if (screenshot != null) {
+                        val nodes = xNodes()
+                        val candidateLabels = try {
+                            nodes.filter { !it.isEditable }
+                                .map { xLabel(it) }
+                                .filter { label ->
+                                    label.length >= 12 &&
+                                    query.split(Regex("\\s+")).all { word ->
+                                        label.contains(word, ignoreCase = true)
+                                    }
+                                }.distinct().take(30)
+                        } finally { nodes.forEach { it.recycle() } }
+                        val recorded = researchEvidenceStore.saveCaptured(query, screenshot, candidateLabels)
+                        memory.record("x.com", query, "screenshot", "", screenshot, "unknown",
+                            "Screen captured; $recorded text candidates linked, unverified")
+                    }
                     memory.record("x.com", query, "read-results", "", before.take(80),
                         "unknown",
                         if (saved > 0) "いいね数を含む候補を保存" else "候補を抽出できず")
