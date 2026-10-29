@@ -44,21 +44,21 @@ object XPostExtractor {
  const posts=[];
  for (const card of Array.from(document.querySelectorAll('article[data-testid="tweet"]')).slice(0,80)) {
    if (!visible(card)) continue;
-   const link=Array.from(card.querySelectorAll('a[href*="/status/"]')).find(a => /\\/status\\/\\d+/.test(a.getAttribute('href')||''));
+   const link=Array.from(card.querySelectorAll('a[href*="/status/"]')).find(a => /\/status\/\d+/.test(a.getAttribute('href')||''));
    if (!link) continue;
    const url=new URL(link.getAttribute('href'), location.origin);
-   const match=url.pathname.match(/^\\/([^/]+)\\/status\\/(\\d+)/);
+   const match=url.pathname.match(/^\/([^/]+)\/status\/(\d+)/);
    if (!match) continue;
    const like=card.querySelector('[data-testid="like"]');
    const unlike=card.querySelector('[data-testid="unlike"]');
    const button=like||unlike;
    if (!button || !visible(button)) continue;
    const label=(button.getAttribute('aria-label')||'').trim();
-   const count=label.match(/(?:^|\\s)([\\d,.]+\\s*[KMB万億]?)(?=\\s*(?:Likes?|いいね))/i) ||
-       label.match(/(?:Likes?|いいね)\\s*[:：]?\\s*([\\d,.]+\\s*[KMB万億]?)/i);
+   const count=label.match(/(?:^|\s)([\d,.]+\s*[KMB万億]?)(?=\s*(?:Likes?|いいね))/i) ||
+       label.match(/(?:Likes?|いいね)\s*[:：]?\s*([\d,.]+\s*[KMB万億]?)/i);
    if (!count) continue;
    const text=Array.from(card.querySelectorAll('[data-testid="tweetText"]')).map(e=>e.innerText).join(' ').slice(0,2000);
-   posts.push({id:match[2],url:url.origin+url.pathname,author:match[1],text,likes:count[1].replace(/\\s+/g,'')});
+   posts.push({id:match[2],url:url.origin+url.pathname,author:match[1],text,likes:count[1].replace(/\s+/g,'')});
  }
  return JSON.stringify(posts);
 })()
