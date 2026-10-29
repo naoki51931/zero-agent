@@ -233,20 +233,28 @@ class ChromeAssistService : AccessibilityService() {
         }
     }
 
-    /** A conservative text relevance gate; screenshots still need visual review. */
-    private fun hasRelevantResult(query: String): Boolean {
+    /** Excludes search fields, navigation and isolated labels from evidence candidates.
+     *  Still not a post identity or visual verification.
+     */
+    private fun xEvidenceLabels(query: String): List<String> {
         val words = query.split(Regex("\\s+")).filter { it.length >= 2 }
-        if (words.isEmpty()) return false
-        val labels = xNodes()
+        if (words.isEmpty()) return emptyList()
+        val items = xNodes()
         return try {
-            labels.any { node ->
-                val label = xLabel(node)
-                !node.isEditable && label.length >= 12 &&
-                    words.all { label.contains(it, ignoreCase = true) } &&
-                    !label.contains("市場調査")
-            }
-        } finally { labels.forEach { it.recycle() } }
+            items.filter { node ->
+                !node.isEditable && !node.isPassword && !node.isFocused &&
+                    !node.isClickable
+            }.map { xLabel(it) }
+                .filter { label ->
+                    label.length in 24..1000 &&
+                        words.all { label.contains(it, ignoreCase = true) } &&
+                        !Regex("(?i)(?:検索結果|検索キーワード|市場調査|search results|search for)").containsMatchIn(label)
+                }.distinct().take(30)
+        } finally { items.forEach { it.recycle() } }
     }
+
+    private fun hasRelevantResult(query: String): Boolean =
+        xEvidenceLabels(query).isNotEmpty()
 
     private fun startXResearch() {
         if (xResearchActive) return
@@ -313,17 +321,7 @@ class ChromeAssistService : AccessibilityService() {
                     else incomplete = true
                     val saved = if (screenshot != null) xCollect(query) else 0
                     if (screenshot != null) {
-                        val nodes = xNodes()
-                        val candidateLabels = try {
-                            nodes.filter { !it.isEditable }
-                                .map { xLabel(it) }
-                                .filter { label ->
-                                    label.length >= 12 &&
-                                    query.split(Regex("\\s+")).all { word ->
-                                        label.contains(word, ignoreCase = true)
-                                    }
-                                }.distinct().take(30)
-                        } finally { nodes.forEach { it.recycle() } }
+                        val candidateLabels = xEvidenceLabels(query)
                         val recorded = researchEvidenceStore.saveCaptured(query, screenshot, candidateLabels)
                         memory.record("x.com", query, "screenshot", "", screenshot, "unknown",
                             "Screen captured; $recorded text candidates linked, unverified")
