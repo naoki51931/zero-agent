@@ -12,7 +12,7 @@
 | 同上 | 目的文から一般的な語句を抽出し、単語・組合せで複数検索 | 簡易Regexによる日本語分割。URLや命令の混入、過剰分割に注意。特定テーマの固定キーワードは禁止 |
 | `ResearchQueryStore.kt` | `research_queries.db` SQLite、検索語の記録・置換・JSONエクスポート/インポート | 現状は目的文の都度再生成。キーワード精度の評価なし |
 | `MainActivity.kt` | 調査DBのバックアップ・復元ボタン、Androidファイルピッカー | **検索語DBのみ**。投稿候補・画像・いいね履歴はバックアップ対象外 |
-| `XResearchMemory.kt` | 画面ラベルのいいね表記をRegexで抽出しSharedPreferences `x_research_v1` に保存、最大200候補、一覧表示 | 投稿ID・URLがなく、同一投稿の本文といいね数の対応未保証。値は推定・未検証 |
+| `ResearchEvidenceStore.kt` | `research_evidence.db` に検索語・候補テキスト・スクリーンショットURI・`captured` 状態を同一行で保存 | 投稿ID/URL、投稿カードの厳密な識別、画像の意味判定は未実装。`captured` は検証済みではない |\n| `XResearchMemory.kt` | 画面ラベルのいいね表記をRegexで抽出しSharedPreferences `x_research_v1` に保存、最大200候補、一覧表示 | 投稿ID・URLがなく、同一投稿の本文といいね数の対応未保証。値は推定・未検証 |
 | `ChromeAssistService.kt` | Android 11+の `takeScreenshot` と `MediaStore.Downloads` を利用し `Downloads/ZeroAgent` にPNG保存、記録にURIを残す | **画面全体の撮影**であり、投稿単位の証拠ではない。スクショの内容判定なし |
 | `res/xml/zero_agent_accessibility.xml` | `canTakeScreenshot=true` | サービス再有効化が必要な場合あり |
 
@@ -24,7 +24,7 @@
 
 ## 未実装・次の実装順
 1. **投稿単位の抽出**: アクセシビリティツリーの投稿カードを特定。投稿ID/URL・著者・本文・いいね数を同一カード内から抽出し、カード以外の検索欄や操作UIを除外。URLが取得できなければ未検証とする。
-2. **証拠紐付け**: 投稿ID/URL、検索語、スクショのcontent URI、撮影日時、画面/投稿の位置情報、抽出本文、いいね数、判定根拠を同一DBレコードに格納。必要ならカード単位に切り抜く。スクショの中に該当カードが存在することを検証する。
+2. **証拠紐付けの完成**: 現状は候補ラベルとスクショURIを同一行に保存する初期実装まで。 投稿ID/URL、検索語、スクショのcontent URI、撮影日時、画面/投稿の位置情報、抽出本文、いいね数、判定根拠を同一DBレコードに格納。必要ならカード単位に切り抜く。スクショの中に該当カードが存在することを検証する。
 3. **関連性検証**: テキスト判定に加え、画像の内容とユーザーの調査目的をマルチモーダルAI等で照合。モデル未設定・失敗・不確実な場合は `unknown`、不一致は `irrelevant`。AIの判定も誤り得るため根拠を保存。
 4. **検証状態管理**: `pending/searching/captured/verified/irrelevant/failed` を区別。実際に保存された `verified` 件数だけで完了判定。中断・画面変化・スクショ失敗・検索失敗は完了禁止。
 5. **バックアップ対象拡大**: キーワードSQLiteだけでなく投稿DB・画像をZIP等にまとめ、Downloadsにエクスポート。復元時に形式・整合性・重複を検査し、画像URIを再作成。
@@ -47,3 +47,8 @@
 - #29 バックアップ/復元
 - #30 検索語の修正
 - #31 スクショ取得と未完了判定
+
+## 2026-10-30 追加作業
+- `ResearchEvidenceStore.kt` を追加。`research_evidence.db` に画面から見えた候補ラベルとスクショURIを保存。`state=captured` 固定であり `verified` に昇格させない。
+- `ChromeAssistService.kt` がスクショ取得時に候補ラベルをDBへ保存する処理を追加。**投稿カードを厳密に認識できていないため、関連性や投稿単位の整合性は未検証**。
+- ビルド・実機動作・画像内容の判定は未確認。自動調査完成と表示しない。
