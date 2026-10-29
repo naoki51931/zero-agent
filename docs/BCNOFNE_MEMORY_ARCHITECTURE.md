@@ -77,3 +77,11 @@ BCNOFNe のエピソード記憶・自律ループの構想を参考に、Androi
 5. 同じホスト・工程で過去の結果がAIの参考情報に含まれるか
 6. 行動履歴の全削除と視覚記憶の期限切れが正しく動くか
 7. ログイン・決済・投稿・検索送信が無断実行されないか
+
+## オーバーレイ権限とGoogle Play規約対応（2026-10-29）
+
+- Zero Agent のChrome補助パネルは `ChromeAssistService` の `TYPE_ACCESSIBILITY_OVERLAY` で表示する。一般アプリ向け `TYPE_APPLICATION_OVERLAY` は使用しないため、不要な `SYSTEM_ALERT_WINDOW` 権限宣言を削除。
+- Chrome上の初回同意画面で、画面の操作候補の読み取りとAIへの送信可能性を説明し、ユーザーが「使う」「使わない」を選べる。
+- ユーザー補助サービスの有効化は利用者自身がAndroid設定で行う。OSの制限、Google Playの審査、他アプリの重ね合わせ禁止設定を回避する機能は実装しない。
+- Google Playで一般的な自動化アプリとして公開する場合、ユーザー補助APIの用途申告、目立つ説明と明示的同意、個人データの取り扱いを別途整備する必要がある。障害者支援専用でない限り `isAccessibilityTool=true` と申告しない。
+- 未確認: 対象端末のOEM固有制限、実機での表示、GitHub Actionsビルド結果。
