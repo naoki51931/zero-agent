@@ -115,6 +115,7 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
         }
     }
     var visionReviewStatus by remember { mutableStateOf("") }
+    var visionQuery by remember { mutableStateOf("") }
     var visionReviewBusy by remember { mutableStateOf(false) }
     val chooseVisionScreenshot = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -125,7 +126,7 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
             scope.launch {
                 try {
                     visionReviewStatus = ResearchVisionReviewer(context).review(
-                        apiKey, model, objective, objective, uri.toString())
+                        apiKey, model, objective, visionQuery, uri.toString())
                     visionReviewStatus = "画面単位のAI参考判定（投稿の検証済み扱いにはしません）: " + visionReviewStatus
                 } catch (e: Exception) {
                     visionReviewStatus = "画像AI判定失敗: " + (e.message ?: "不明なエラー")
@@ -271,8 +272,10 @@ fun ZeroAgentApp(wallet: WalletManager, settings: LocalSettings) {
                     modifier = Modifier.fillMaxWidth()) { Text("未検証の調査証拠一覧を書き出す") }
                 Text("証拠一覧はJSON形式です。画像本体や復元機能は含まれません。")
                 if (evidenceMessage.isNotBlank()) Text(evidenceMessage)
+                OutlinedTextField(value = visionQuery, onValueChange = { visionQuery = it.take(80) },
+                    label = { Text("画像判定する検索キーワード") }, modifier = Modifier.fillMaxWidth())
                 Button(onClick = { chooseVisionScreenshot.launch(arrayOf("image/png")) },
-                    enabled = !visionReviewBusy && apiKey.isNotBlank() && model.isNotBlank(),
+                    enabled = !visionReviewBusy && apiKey.isNotBlank() && model.isNotBlank() && visionQuery.isNotBlank(),
                     modifier = Modifier.fillMaxWidth()) { Text("画像を選んでAI関連性判定（外部送信）") }
                 Text("選択したPNG画像はOpenRouterの選択モデルへ送信されます。費用が発生する場合があります。画面の関連性判定のみで、投稿URLやいいね数は未検証です。")
                 if (visionReviewStatus.isNotBlank()) Text(visionReviewStatus)
