@@ -60,4 +60,20 @@ class XResearchMemory(context: Context) {
             "候補 " + count(term) + " 件（画面表示の推定値）\n" +
                 top.joinToString("\n") { "♡" + it.optLong("likes") + ": " + it.optString("text").take(95) }
     }
+    @Synchronized
+    fun summaryAll(terms: List<String>): String {
+        val rows = read()
+        val matches = (0 until rows.length()).mapNotNull { rows.optJSONObject(it) }
+            .filter { it.optString("term") in terms }
+            .sortedByDescending { it.optLong("likes") }
+        if (matches.isEmpty()) return "検索したキーワード: " + terms.joinToString(" / ") +
+            "\nいいね数付き候補はまだ取得できていません"
+        return "検索: " + terms.joinToString(" / ") +
+            "\n候補 " + matches.size + " 件（画面表示からの推定・未検証）\n" +
+            matches.take(8).joinToString("\n") {
+                "[" + it.optString("term") + "] ♡" + it.optLong("likes") +
+                    " " + it.optString("text").take(100)
+            }
+    }
+
 }
