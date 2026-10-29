@@ -58,4 +58,29 @@ class ResearchEvidenceStore(context: Context) :
             return if (cursor.moveToFirst()) cursor.getInt(0) else 0
         }
     }
+    /** Read-only review report; candidates remain unverified. */
+    fun exportJson(): org.json.JSONObject {
+        val rows = org.json.JSONArray()
+        readableDatabase.query("evidence",
+            arrayOf("query", "candidate_text", "screenshot_uri", "post_url",
+                "likes_estimate", "state", "reason", "created_at"),
+            null, null, null, null, "id ASC").use { cursor ->
+            while (cursor.moveToNext()) {
+                val row = org.json.JSONObject()
+                val columns = arrayOf("query", "candidate_text", "screenshot_uri", "post_url",
+                    "likes_estimate", "state", "reason", "created_at")
+                for (i in columns.indices) {
+                    if (cursor.isNull(i)) row.put(columns[i], org.json.JSONObject.NULL)
+                    else if (i == 4 || i == 7) row.put(columns[i], cursor.getLong(i))
+                    else row.put(columns[i], cursor.getString(i))
+                }
+                rows.put(row)
+            }
+        }
+        return org.json.JSONObject()
+            .put("format", "zero-agent-evidence-review-v1")
+            .put("note", "Review only. Screenshot URIs may not survive app reinstall.")
+            .put("records", rows)
+    }
+
 }
