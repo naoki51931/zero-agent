@@ -638,8 +638,8 @@ class ChromeAssistService : AccessibilityService() {
                     val summary = xResearchMemory.summarySaved()
                     val evidence = researchEvidenceStore.exportJson()
                         .optJSONArray("records")?.length() ?: 0
-                    resultsText.text = "X調査結果（端末内保存）\\n画面証拠候補: " +
-                        evidence + " 件（投稿単位では未検証）\\n\\n" + summary
+                    resultsText.text = "X調査結果（端末内保存）\n画面証拠候補: " +
+                        evidence + " 件（投稿単位では未検証）\n\n" + summary
                     resultsOpen = true
                     resultsScroll.visibility = android.view.View.VISIBLE
                     message?.text = "保存済みのX調査結果を表示しています"
