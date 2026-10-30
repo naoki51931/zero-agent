@@ -624,10 +624,12 @@ class ChromeAssistService : AccessibilityService() {
             setOnClickListener {
                 try {
                     runCatching { activeXLog?.record("results_opened", "activity") }
+                    panel?.visibility = android.view.View.GONE
                     startActivity(Intent(this@ChromeAssistService, XResearchResultsActivity::class.java)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                     message?.text = "X調査結果を別画面で開きました"
                 } catch (e: Exception) {
+                    panel?.visibility = android.view.View.VISIBLE
                     message?.text = "X調査結果を開けません: " + e.message.orEmpty().take(100)
                     runCatching { activeXLog?.record("results_open_error", e.javaClass.simpleName) }
                 }
@@ -725,15 +727,22 @@ class ChromeAssistService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event == null || event.packageName?.toString() == packageName) return
+        if (event == null) return
+        if (event.packageName?.toString() == packageName) {
+            if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+                event.className?.toString()?.contains("XResearchResultsActivity") == true) {
+                panel?.visibility = android.view.View.GONE
+            }
+            return
+        }
         if (demonstrating && (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED || event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED)) recordDemonstration(event)
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val isChrome = isSupportedScreen(event.packageName?.toString())
         if (isChrome) {
             browserTransitionToken++
+            panel?.visibility = android.view.View.VISIBLE
             if (!chromeActive) {
                 chromeActive = true
-                panel?.visibility = android.view.View.VISIBLE
                 if (!browserConsentShown) {
                     consentPanel?.visibility = android.view.View.VISIBLE
                     browserConsentShown = true
