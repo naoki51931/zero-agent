@@ -624,6 +624,7 @@ class ChromeAssistService : AccessibilityService() {
             setPadding(16, 16, 16, 16)
             setTextColor(android.graphics.Color.BLACK)
         }
+        var resultsOpen = false
         val resultsScroll = ScrollView(this).apply {
             visibility = android.view.View.GONE
             setBackgroundColor(0xFFF7F7FA.toInt())
@@ -639,6 +640,7 @@ class ChromeAssistService : AccessibilityService() {
                         .optJSONArray("records")?.length() ?: 0
                     resultsText.text = "X調査結果（端末内保存）\\n画面証拠候補: " +
                         evidence + " 件（投稿単位では未検証）\\n\\n" + summary
+                    resultsOpen = true
                     resultsScroll.visibility = android.view.View.VISIBLE
                     message?.text = "保存済みのX調査結果を表示しています"
                     runCatching { activeXLog?.record("results_opened", "evidence_rows=" + evidence) }
@@ -676,7 +678,7 @@ class ChromeAssistService : AccessibilityService() {
         fun setCompact(value: Boolean) {
             compact = value
             controls.forEach { control ->
-                control.visibility = if (value) android.view.View.GONE else if (control == resultsScroll) resultsScroll.visibility else android.view.View.VISIBLE
+                control.visibility = if (value) android.view.View.GONE else if (control == resultsScroll && !resultsOpen) android.view.View.GONE else android.view.View.VISIBLE
             }
             params.width = if (value) (190 * resources.displayMetrics.density).toInt() else WindowManager.LayoutParams.MATCH_PARENT
             dragHandle.text = if (value) "☰ 移動 / タップで展開" else "☰ ドラッグで縮小・移動"
@@ -732,7 +734,7 @@ class ChromeAssistService : AccessibilityService() {
             text = "小さくする"
             setOnClickListener { setCompact(true) }
         }
-        layout.addView(dragHandle); layout.addView(consent); layout.addView(status); layout.addView(objective); layout.addView(demoStart); layout.addView(demoStop); layout.addView(suggest); layout.addView(accept); layout.addView(auto); layout.addView(xResearch); layout.addView(testLog); layout.addView(xResults); layout.addView(resultsScroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (220 * resources.displayMetrics.density).toInt())); layout.addView(stop); layout.addView(toggle)
+        layout.addView(dragHandle); layout.addView(consent); layout.addView(status); layout.addView(resultsScroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (220 * resources.displayMetrics.density).toInt())); layout.addView(objective); layout.addView(demoStart); layout.addView(demoStop); layout.addView(suggest); layout.addView(accept); layout.addView(auto); layout.addView(xResearch); layout.addView(testLog); layout.addView(xResults); layout.addView(stop); layout.addView(toggle)
         manager.addView(layout, params)
         panel = layout
         setCompact(true)
