@@ -56,9 +56,9 @@ class XResearchResultsActivity : Activity() {
                 val candidate = row.optString("candidate_text")
                 val review = row.optString("image_review").takeIf { it != "null" && it.isNotBlank() }
                 val likes = if (row.isNull("likes_estimate")) "未取得" else row.optLong("likes_estimate").toString()
-                val label = "検索語: $query\\nいいね数: $likes（未検証）" +
-                    (if (review != null) "\\n画像判定: $review" else "") +
-                    "\\n候補テキスト: $candidate"
+                val label = "検索語: $query\nいいね数: $likes（未検証）" +
+                    (if (review != null) "\n画像判定: $review" else "") +
+                    "\n候補テキスト: $candidate"
                 body.addView(text(label, 14f).apply {
                     setBackgroundColor(if (index % 2 == 0) 0xFFF1F2F5.toInt() else 0xFFFFFFFF.toInt())
                 })
