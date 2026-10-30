@@ -98,6 +98,21 @@ class XResearchMemory(context: Context) {
             "候補 " + count(term) + " 件（画面表示の推定値）\n" +
                 top.joinToString("\n") { "♡" + it.optLong("likes") + ": " + it.optString("text").take(95) }
     }
+    /** Display persisted observations regardless of the currently edited objective. */
+    @Synchronized
+    fun summarySaved(): String {
+        val rows = read()
+        val items = (0 until rows.length()).mapNotNull { rows.optJSONObject(it) }
+            .sortedByDescending { it.optLong("likes") }
+        if (items.isEmpty()) return "いいね数付きの候補はまだ保存されていません。\n" +
+            "スクリーンショット証拠は別に保存されている場合があります。"
+        return "保存済み候補 " + items.size + " 件（推定値・未検証）\n\n" +
+            items.take(30).joinToString("\n\n") {
+                "[" + it.optString("term") + "] ♡" + it.optLong("likes") +
+                    "\n" + it.optString("text").take(220)
+            }
+    }
+
     @Synchronized
     fun summaryAll(terms: List<String>): String {
         val rows = read()

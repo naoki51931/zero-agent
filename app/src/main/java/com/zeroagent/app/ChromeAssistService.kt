@@ -30,6 +30,7 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -618,9 +619,37 @@ class ChromeAssistService : AccessibilityService() {
                 }
             }
         }
+        val resultsText = TextView(this).apply {
+            textSize = 14f
+            setPadding(16, 16, 16, 16)
+            setTextColor(android.graphics.Color.BLACK)
+        }
+        var resultsOpen = false
+        val resultsScroll = ScrollView(this).apply {
+            visibility = android.view.View.GONE
+            setBackgroundColor(0xFFF7F7FA.toInt())
+            addView(resultsText)
+        }
         val xResults = Button(this).apply {
             text = "X調査結果を見る"
-            setOnClickListener { message?.text = xResearchMemory.summaryAll(xSearchTerms()) }
+            setOnClickListener {
+                try {
+                    // Use saved results, not a fresh parse of the edited objective.
+                    val summary = xResearchMemory.summarySaved()
+                    val evidence = researchEvidenceStore.exportJson()
+                        .optJSONArray("records")?.length() ?: 0
+                    resultsText.text = "X調査結果（端末内保存）\n画面証拠候補: " +
+                        evidence + " 件（投稿単位では未検証）\n\n" + summary
+                    resultsOpen = true
+                    resultsScroll.visibility = android.view.View.VISIBLE
+                    message?.text = "保存済みのX調査結果を表示しています"
+                    runCatching { activeXLog?.record("results_opened", "evidence_rows=" + evidence) }
+                } catch (e: Exception) {
+                    resultsText.text = "結果の読み込みに失敗: " + e.javaClass.simpleName
+                    resultsScroll.visibility = android.view.View.VISIBLE
+                    message?.text = "X調査結果の読み込みに失敗しました"
+                }
+            }
         }
         val stop = Button(this).apply { text = "停止"; setOnClickListener {
             autoRunning = false; runToken++; stepsRemaining = 0; recentActions.clear()
@@ -644,11 +673,13 @@ class ChromeAssistService : AccessibilityService() {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.TOP; y = (48 * resources.displayMetrics.density).toInt() }
-        val controls = listOf(status, objective, demoStart, demoStop, suggest, accept, auto, xResearch, testLog, xResults, stop)
+        val controls = listOf(status, objective, demoStart, demoStop, suggest, accept, auto, xResearch, testLog, xResults, stop, resultsScroll)
         var compact = false
         fun setCompact(value: Boolean) {
             compact = value
-            controls.forEach { it.visibility = if (value) android.view.View.GONE else android.view.View.VISIBLE }
+            controls.forEach { control ->
+                control.visibility = if (value) android.view.View.GONE else if (control == resultsScroll && !resultsOpen) android.view.View.GONE else android.view.View.VISIBLE
+            }
             params.width = if (value) (190 * resources.displayMetrics.density).toInt() else WindowManager.LayoutParams.MATCH_PARENT
             dragHandle.text = if (value) "☰ 移動 / タップで展開" else "☰ ドラッグで縮小・移動"
             if (layout.isAttachedToWindow) manager.updateViewLayout(layout, params)
@@ -703,7 +734,7 @@ class ChromeAssistService : AccessibilityService() {
             text = "小さくする"
             setOnClickListener { setCompact(true) }
         }
-        layout.addView(dragHandle); layout.addView(consent); layout.addView(status); layout.addView(objective); layout.addView(demoStart); layout.addView(demoStop); layout.addView(suggest); layout.addView(accept); layout.addView(auto); layout.addView(xResearch); layout.addView(testLog); layout.addView(xResults); layout.addView(stop); layout.addView(toggle)
+        layout.addView(dragHandle); layout.addView(consent); layout.addView(status); layout.addView(resultsScroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (220 * resources.displayMetrics.density).toInt())); layout.addView(objective); layout.addView(demoStart); layout.addView(demoStop); layout.addView(suggest); layout.addView(accept); layout.addView(auto); layout.addView(xResearch); layout.addView(testLog); layout.addView(xResults); layout.addView(stop); layout.addView(toggle)
         manager.addView(layout, params)
         panel = layout
         setCompact(true)
