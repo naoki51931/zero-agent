@@ -253,6 +253,25 @@ class ChromeAssistService : AccessibilityService() {
         } finally { items.forEach { it.recycle() } }
     }
 
+    /** Scroll a visible scrollable descendant rather than the non-scrollable root. */
+    private fun scrollXResults(): Boolean {
+        val root = rootInActiveWindow ?: return false
+        try {
+            if (root.packageName?.toString() != "com.twitter.android") return false
+            fun scroll(node: AccessibilityNodeInfo, depth: Int): Boolean {
+                if (depth > 25 || !node.isVisibleToUser) return false
+                for (i in 0 until node.childCount) {
+                    val child = node.getChild(i) ?: continue
+                    try { if (scroll(child, depth + 1)) return true }
+                    finally { child.recycle() }
+                }
+                return node.isScrollable &&
+                    node.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+            }
+            return scroll(root, 0)
+        } finally { root.recycle() }
+    }
+
     private fun hasRelevantResult(query: String): Boolean =
         xEvidenceLabels(query).isNotEmpty()
 
@@ -269,15 +288,20 @@ class ChromeAssistService : AccessibilityService() {
         val token = ++xResearchToken
         scope.launch {
             val memory = EpisodeMemory(this@ChromeAssistService)
+            var log: XResearchLog? = null
             try {
+                log = XResearchLog(this@ChromeAssistService)
+                log.record("research_started", "queries=" + terms.size)
                 var capturedScreens = 0
                 var incomplete = false
                 for ((queryIndex, query) in terms.withIndex()) {
                 message?.text = "X検索 ${queryIndex + 1}/${terms.size}: $query"
+                log?.record("query_started", "index=" + queryIndex + "; length=" + query.length)
                 val searchNodes = xNodes()
                 val searchReady = try { searchNodes.any { it.isEditable && !it.isPassword } }
                     finally { searchNodes.forEach { it.recycle() } }
                 if (!searchReady && !xClickSearch()) {
+                    log?.record("search_tab_missing")
                     message?.text = "検索タブが見つかりません。Xの検索画面を表示して再実行してください"
                     memory.record("x.com", query, "search-tab", "", "", "failed", "検索タブが見つからない")
                     break
@@ -285,6 +309,7 @@ class ChromeAssistService : AccessibilityService() {
                 if (!searchReady) delay(1000)
                 if (!xResearchActive || token != xResearchToken) break
                 if (!xFillSearch(query)) {
+                    log?.record("search_input_missing")
                     message?.text = "検索欄を手動で開いてから再実行してください"
                     memory.record("x.com", query, "search-input", "", "", "failed", "検索欄が見つからない")
                     break
@@ -296,6 +321,7 @@ class ChromeAssistService : AccessibilityService() {
                 val beforeSubmit = screenFingerprint().orEmpty()
                 val submitted = xSubmitSearch()
                 if (!submitted) {
+                    log?.record("search_submit_failed")
                     message?.text = "検索の自動確定に失敗しました。キーボードの検索を押して再実行してください"
                     memory.record("x.com", query, "search-submit", beforeSubmit.take(80), "", "failed",
                         "検索IMEアクション・検索ボタンが利用できない")
@@ -305,6 +331,7 @@ class ChromeAssistService : AccessibilityService() {
                 if (!xResearchActive || token != xResearchToken) break
                 val afterSubmit = screenFingerprint().orEmpty()
                 if (beforeSubmit == afterSubmit) {
+                    log?.record("search_no_screen_change")
                     message?.text = "検索結果への遷移を確認できませんでした。Xの画面を確認してください"
                     memory.record("x.com", query, "search-submit", beforeSubmit.take(80),
                         afterSubmit.take(80), "unknown", "検索操作後に画面変化を確認できない")
@@ -316,13 +343,16 @@ class ChromeAssistService : AccessibilityService() {
                     if (!xResearchActive || token != xResearchToken) break
                     val before = screenFingerprint().orEmpty()
                     val relevant = hasRelevantResult(query)
-                    val screenshot = if (relevant) captureResearchEvidence() else null
+                    // A text-only gate misses image posts and cards with split accessibility labels.
+                    val screenshot = captureResearchEvidence()
+                    log?.record("screen_capture", "page=" + page + "; text_candidate=" + relevant + "; saved=" + (screenshot != null))
                     if (screenshot != null) capturedScreens++
                     else incomplete = true
                     val saved = if (screenshot != null) xCollect(query) else 0
                     if (screenshot != null) {
                         val candidateLabels = xEvidenceLabels(query)
                         val recorded = researchEvidenceStore.saveCaptured(query, screenshot, candidateLabels)
+                        log?.record("candidates", "page=" + page + "; count=" + recorded)
                         if (LocalSettings(this@ChromeAssistService).get("autoVisionReview") == "true") {
                             val settings = LocalSettings(this@ChromeAssistService)
                             val key = settings.get("apiKey")
@@ -338,9 +368,11 @@ class ChromeAssistService : AccessibilityService() {
                                     val (verdict, reason) = ResearchVisionReviewer(this@ChromeAssistService)
                                         .reviewVerdict(key, model, goal, query, screenshot)
                                     researchEvidenceStore.saveScreenReview(screenshot, verdict, reason)
+                                    log?.record("vision_result", verdict)
                                     message?.text = "X画像AI判定: $verdict（投稿単位の検証は未完了）"
                                 }
                             } catch (e: Exception) {
+                                log?.record("vision_error", e.javaClass.simpleName)
                                 researchEvidenceStore.saveScreenReview(screenshot, "screen_error",
                                     e.message.orEmpty().take(200))
                                 message?.text = "X画像AI判定失敗: " + e.message.orEmpty().take(90)
@@ -354,14 +386,12 @@ class ChromeAssistService : AccessibilityService() {
                         if (saved > 0) "いいね数を含む候補を保存" else "候補を抽出できず")
                     message?.text = "X調査 $page/4：関連テキスト ${if (relevant) "あり" else "なし"}、スクショ ${if (screenshot != null) "保存" else "未保存"}、候補 $saved 件"
                     if (page < 4) {
-                        val root = rootInActiveWindow
-                        if (root?.packageName?.toString() != "com.twitter.android") {
-                            root?.recycle()
+                        val scrolled = scrollXResults()
+                        log?.record("scroll", "page=" + page + "; success=" + scrolled)
+                        if (!scrolled) {
+                            incomplete = true
                             break
                         }
-                        val scrolled = root.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
-                        root.recycle()
-                        if (!scrolled) break
                         delay(1600)
                     }
                 }
@@ -374,8 +404,14 @@ class ChromeAssistService : AccessibilityService() {
                     }
                 }
             } catch (e: Exception) {
+                log?.record("research_error", e.javaClass.simpleName)
                 message?.text = "X調査エラー: " + e.message.orEmpty().take(100)
-            } finally { xResearchActive = false }
+            } finally {
+                runCatching { log?.record("research_finished", "active=" + xResearchActive) }
+                xResearchActive = false
+                val path = log?.location()
+                if (path != null) message?.text = message?.text.toString().take(160) + "\n診断ログ: " + path
+            }
         }
     }
 
