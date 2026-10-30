@@ -51,6 +51,8 @@ class ResearchVisionReviewer(private val context: Context) {
     }
 
     private suspend fun request(key: String, model: String, uri: String, instruction: String, limit: Int): String =
+        withContext(Dispatchers.IO) {
+            require(key.isNotBlank() && model.isNotBlank())
             val bytes = context.contentResolver.openInputStream(Uri.parse(uri))?.use {
                 val output = ByteArrayOutputStream()
                 val buffer = ByteArray(8192)
