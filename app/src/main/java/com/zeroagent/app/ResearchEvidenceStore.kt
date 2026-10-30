@@ -91,6 +91,10 @@ class ResearchEvidenceStore(context: Context) :
                     else if (i == 4 || i == 7) row.put(columns[i], cursor.getLong(i))
                     else row.put(columns[i], cursor.getString(i))
                 }
+                if (cursor.isNull(8)) row.put("image_review", org.json.JSONObject.NULL)
+                else row.put("image_review", cursor.getString(8))
+                if (cursor.isNull(9)) row.put("image_review_reason", org.json.JSONObject.NULL)
+                else row.put("image_review_reason", cursor.getString(9))
                 rows.put(row)
             }
         }
