@@ -104,12 +104,12 @@ class XResearchMemory(context: Context) {
         val rows = read()
         val items = (0 until rows.length()).mapNotNull { rows.optJSONObject(it) }
             .sortedByDescending { it.optLong("likes") }
-        if (items.isEmpty()) return "いいね数付きの候補はまだ保存されていません。\\n" +
+        if (items.isEmpty()) return "いいね数付きの候補はまだ保存されていません。\n" +
             "スクリーンショット証拠は別に保存されている場合があります。"
-        return "保存済み候補 " + items.size + " 件（推定値・未検証）\\n\\n" +
-            items.take(30).joinToString("\\n\\n") {
+        return "保存済み候補 " + items.size + " 件（推定値・未検証）\n\n" +
+            items.take(30).joinToString("\n\n") {
                 "[" + it.optString("term") + "] ♡" + it.optLong("likes") +
-                    "\\n" + it.optString("text").take(220)
+                    "\n" + it.optString("text").take(220)
             }
     }
 
