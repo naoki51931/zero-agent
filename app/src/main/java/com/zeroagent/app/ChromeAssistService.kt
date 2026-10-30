@@ -138,16 +138,45 @@ class ChromeAssistService : AccessibilityService() {
     private fun xLabel(n: AccessibilityNodeInfo) =
         listOfNotNull(n.text?.toString(), n.contentDescription?.toString()).joinToString(" ").trim()
 
+    /** Click the X search entry or the search field, including clickable parents of labels. */
     private fun xClickSearch(): Boolean {
-        val items = xNodes()
-        return try {
-            val search = items.firstOrNull { node ->
-                node.isClickable && !node.isEditable &&
-                    Regex("(?i)^(?:検索|検索タブ|Search|Explore|Search and explore|検索と探索|検索する)$")
-                        .matches(xLabel(node).trim())
+        val root = rootInActiveWindow ?: return false
+        try {
+            if (root.packageName?.toString() != "com.twitter.android") return false
+            val labelPattern = Regex(
+                "(?i)(?:検索|search|explore|虫眼鏡|search twitter|search x)"
+            )
+            fun clickTarget(node: AccessibilityNodeInfo): Boolean {
+                var parent: AccessibilityNodeInfo? = AccessibilityNodeInfo.obtain(node)
+                repeat(4) {
+                    val current = parent ?: return false
+                    if (current.isVisibleToUser && current.isClickable && !current.isEditable) {
+                        val ok = current.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                        current.recycle()
+                        parent = null
+                        return ok
+                    }
+                    parent = current.parent
+                    current.recycle()
+                }
+                parent?.recycle()
+                return false
             }
-            search?.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: false
-        } finally { items.forEach { it.recycle() } }
+            fun visit(node: AccessibilityNodeInfo, depth: Int): Boolean {
+                if (depth > 22 || !node.isVisibleToUser) return false
+                val label = xLabel(node)
+                if (!node.isPassword && label.length <= 100 && labelPattern.containsMatchIn(label)) {
+                    if (clickTarget(node)) return true
+                }
+                for (i in 0 until node.childCount) {
+                    val child = node.getChild(i) ?: continue
+                    try { if (visit(child, depth + 1)) return true }
+                    finally { child.recycle() }
+                }
+                return false
+            }
+            return visit(root, 0)
+        } finally { root.recycle() }
     }
 
     /** From a scrolled results feed, first try the visible search control, then Android back. */
@@ -161,10 +190,15 @@ class ChromeAssistService : AccessibilityService() {
             log.record("search_ready", "index=" + queryIndex + "; method=editable")
             return true
         }
-        if (xClickSearch()) {
-            delay(900)
+        // The initial launch may show X Home, Explore or a search landing page.
+        // Try the search entry repeatedly as X transitions between those screens.
+        repeat(if (queryIndex == 0) 3 else 2) { attempt ->
+            val clicked = xClickSearch()
+            log.record("search_entry_attempt", "index=" + queryIndex +
+                "; attempt=" + (attempt + 1) + "; clicked=" + clicked)
+            delay(850)
             if (hasEditableSearch()) {
-                log.record("search_ready", "index=" + queryIndex + "; method=tab")
+                log.record("search_ready", "index=" + queryIndex + "; method=entry")
                 return true
             }
         }
@@ -369,7 +403,7 @@ class ChromeAssistService : AccessibilityService() {
                 log?.record("query_started", "index=" + queryIndex + "; length=" + query.length)
                 if (!xPrepareSearch(queryIndex, log)) {
                     log.record("research_stopped", "search_navigation_failed; index=" + queryIndex)
-                    message?.text = "次の検索欄へ移動できず停止。ログ: " + log.location()
+                    message?.text = "X検索欄を自動で開けず停止。ログ: " + log.location()
                     memory.record("x.com", query, "search-tab", "", "", "failed", "検索画面への復帰に失敗")
                     break
                 }
