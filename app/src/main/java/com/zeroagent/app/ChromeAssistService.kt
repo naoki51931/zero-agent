@@ -80,6 +80,7 @@ class ChromeAssistService : AccessibilityService() {
     private val researchEvidenceStore by lazy { ResearchEvidenceStore(this) }
     private var xResearchActive = false
     private var xResearchToken = 0
+    private var minimizeForResearch: (() -> Unit)? = null
 
     private val researchQueryStore by lazy { ResearchQueryStore(this) }
 
@@ -285,6 +286,7 @@ class ChromeAssistService : AccessibilityService() {
         foreground?.recycle()
         if (!isX) { message?.text = "X公式アプリを前面に開いてください"; return }
         xResearchActive = true
+        minimizeForResearch?.invoke()
         val token = ++xResearchToken
         scope.launch {
             val memory = EpisodeMemory(this@ChromeAssistService)
@@ -533,6 +535,7 @@ class ChromeAssistService : AccessibilityService() {
             dragHandle.text = if (value) "☰ 移動 / タップで展開" else "☰ ドラッグで縮小・移動"
             if (layout.isAttachedToWindow) manager.updateViewLayout(layout, params)
         }
+        minimizeForResearch = { setCompact(true) }
         var startRawX = 0f
         var startRawY = 0f
         var startPanelX = 0
