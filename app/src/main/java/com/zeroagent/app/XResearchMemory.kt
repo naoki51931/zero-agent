@@ -113,7 +113,8 @@ class XResearchMemory(context: Context) {
             }
     }
 
-
+    @Synchronized
+    fun summaryAll(terms: List<String>): String {
         val rows = read()
         val matches = (0 until rows.length()).mapNotNull { rows.optJSONObject(it) }
             .filter { it.optString("term") in terms }
