@@ -473,6 +473,21 @@ class ChromeAssistService : AccessibilityService() {
                                         .reviewVerdict(key, model, goal, query, screenshot)
                                     researchEvidenceStore.saveScreenReview(screenshot, verdict, reason)
                                     log?.record("vision_result", verdict)
+                                    // Same explicit opt-in setting governs cloud image extraction.
+                                    try {
+                                        val likes = withTimeoutOrNull(25000L) {
+                                            ResearchVisionReviewer(this@ChromeAssistService)
+                                                .extractLikes(key, model, query, screenshot)
+                                        }
+                                        if (likes == null) {
+                                            log?.record("image_likes_timeout", "page=" + page)
+                                        } else {
+                                            val added = researchEvidenceStore.saveImageLikes(query, screenshot, likes)
+                                            log?.record("image_likes_saved", "page=" + page + "; count=" + added)
+                                        }
+                                    } catch (e: Exception) {
+                                        log?.record("image_likes_error", e.javaClass.simpleName)
+                                    }
                                     message?.text = "X画像AI判定: $verdict（投稿単位の検証は未完了）"
                                 }
                             } catch (e: Exception) {

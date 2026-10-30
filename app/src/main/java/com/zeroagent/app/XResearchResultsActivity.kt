@@ -5,6 +5,12 @@ import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import android.os.Build
 import android.view.WindowInsets
 import android.view.View
@@ -17,6 +23,8 @@ import org.json.JSONObject
 /** Read-only screen for locally saved, unverified X research observations. */
 class XResearchResultsActivity : Activity() {
     private lateinit var body: LinearLayout
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    override fun onDestroy() { scope.cancel(); super.onDestroy() }
 
     private fun text(value: String, size: Float = 15f): TextView = TextView(this).apply {
         text = value
@@ -57,6 +65,43 @@ class XResearchResultsActivity : Activity() {
         try {
             val rows = ResearchEvidenceStore(this).use { store ->
                 store.exportJson().optJSONArray("records")
+            }
+            val settings = LocalSettings(this)
+            if (settings.get("autoVisionReview") == "true" && settings.get("apiKey").isNotBlank() && settings.get("model").isNotBlank()) {
+                body.addView(Button(this).apply {
+                    text = "保存済み画像からいいね数を解析（最大10画面・API料金が発生）"
+                    setOnClickListener { button ->
+                        isEnabled = false
+                        text = "解析中..."
+                        scope.launch {
+                            var saved = 0
+                            var errors = 0
+                            val seen = mutableSetOf<String>()
+                            val targets = (0 until (rows?.length() ?: 0)).mapNotNull { rows?.optJSONObject(it) }
+                                .filter { seen.add(it.optString("screenshot_uri")) }.take(10)
+                            for (row in targets) {
+                                try {
+                                    val items = ResearchVisionReviewer(this@XResearchResultsActivity).extractLikes(
+                                        settings.get("apiKey"), settings.get("model"), row.optString("query"), row.optString("screenshot_uri"))
+                                    saved += withContext(Dispatchers.IO) { ResearchEvidenceStore(this@XResearchResultsActivity).use {
+                                        it.saveImageLikes(row.optString("query"), row.optString("screenshot_uri"), items)
+                                    } }
+                                } catch (_: Exception) { errors++ }
+                            }
+                            android.widget.Toast.makeText(this@XResearchResultsActivity,
+                                "画像解析完了: " + saved + " 件、失敗 " + errors + " 画面", android.widget.Toast.LENGTH_LONG).show()
+                            showResults()
+                        }
+                    }
+                })
+            }
+            val imageLikes = ResearchEvidenceStore(this).use { it.imageLikes() }
+            body.addView(text("画像から読み取ったいいね数: " + imageLikes.length() + " 件", 18f))
+            body.addView(text("AI画像解析による推定値です。投稿との対応・数字は未検証です。", 12f))
+            for (i in 0 until imageLikes.length()) {
+                val item = imageLikes.optJSONObject(i) ?: continue
+                body.addView(text("♡ " + item.optLong("likes") + "  [" + item.optString("query") + "]\n" +
+                    item.optString("text"), 15f))
             }
             val total = rows?.length() ?: 0
             body.addView(text("保存済み画面証拠候補: $total 件", 18f))
