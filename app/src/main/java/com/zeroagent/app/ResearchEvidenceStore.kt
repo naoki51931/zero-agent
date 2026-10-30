@@ -7,7 +7,7 @@ import android.database.sqlite.SQLiteOpenHelper
 
 /** Unverified evidence observations. Do not treat records as validated posts. */
 class ResearchEvidenceStore(context: Context) :
-    SQLiteOpenHelper(context, "research_evidence.db", null, 2) {
+    SQLiteOpenHelper(context, "research_evidence.db", null, 3) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("""
             CREATE TABLE evidence (
@@ -26,12 +26,43 @@ class ResearchEvidenceStore(context: Context) :
             )
         """.trimIndent())
         db.execSQL("CREATE INDEX evidence_query ON evidence(query)")
+        createImageLikes(db)
+    }
+    private fun createImageLikes(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS image_likes (id INTEGER PRIMARY KEY AUTOINCREMENT, screenshot_uri TEXT NOT NULL, query TEXT NOT NULL, excerpt TEXT NOT NULL, likes INTEGER NOT NULL, UNIQUE(screenshot_uri, excerpt, likes))")
     }
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 3) createImageLikes(db)
         if (oldVersion < 2) {
             db.execSQL("ALTER TABLE evidence ADD COLUMN image_review TEXT")
             db.execSQL("ALTER TABLE evidence ADD COLUMN image_review_reason TEXT")
         }
+    }
+
+    fun saveImageLikes(query: String, uri: String, items: org.json.JSONArray): Int {
+        val db = writableDatabase
+        var count = 0
+        for (i in 0 until minOf(items.length(), 8)) {
+            val item = items.optJSONObject(i) ?: continue
+            val excerpt = item.optString("text").trim().take(180)
+            val likes = item.optLong("likes", -1)
+            if (excerpt.length < 3 || likes < 0) continue
+            val values = ContentValues().apply {
+                put("query", query.take(80)); put("screenshot_uri", uri)
+                put("excerpt", excerpt); put("likes", likes)
+            }
+            if (db.insertWithOnConflict("image_likes", null, values, SQLiteDatabase.CONFLICT_IGNORE) != -1L) count++
+        }
+        return count
+    }
+    fun imageLikes(): org.json.JSONArray {
+        val rows = org.json.JSONArray()
+        readableDatabase.query("image_likes", arrayOf("query", "excerpt", "likes", "screenshot_uri"),
+            null, null, null, null, "likes DESC", "300").use { c ->
+            while (c.moveToNext()) rows.put(org.json.JSONObject().put("query", c.getString(0))
+                .put("text", c.getString(1)).put("likes", c.getLong(2)).put("screenshot_uri", c.getString(3)))
+        }
+        return rows
     }
 
     fun saveScreenReview(screenshotUri: String, verdict: String, reason: String): Int {
