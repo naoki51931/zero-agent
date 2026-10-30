@@ -80,6 +80,7 @@ class ChromeAssistService : AccessibilityService() {
     private val researchEvidenceStore by lazy { ResearchEvidenceStore(this) }
     private var xResearchActive = false
     private var xResearchToken = 0
+    private var activeXLog: XResearchLog? = null
     private var minimizeForResearch: (() -> Unit)? = null
 
     private val researchQueryStore by lazy { ResearchQueryStore(this) }
@@ -278,21 +279,34 @@ class ChromeAssistService : AccessibilityService() {
 
     private fun startXResearch() {
         if (xResearchActive) return
+        val log = try { XResearchLog(this) } catch (e: Exception) {
+            message?.text = "ログ保存に失敗: " + e.message.orEmpty().take(120)
+            return
+        }
+        activeXLog = log
+        log.record("research_button_pressed")
+        message?.text = "診断ログ作成: " + log.location()
         val terms = xSearchTerms()
         val term = terms.firstOrNull().orEmpty()
-        if (term.length < 2) { message?.text = "調査キーワードを2文字以上入力してください"; return }
+        if (term.length < 2) {
+            log.record("invalid_query")
+            message?.text = "調査キーワードを2文字以上入力してください。ログ: " + log.location()
+            return
+        }
         val foreground = rootInActiveWindow
         val isX = foreground?.packageName?.toString() == "com.twitter.android"
         foreground?.recycle()
-        if (!isX) { message?.text = "X公式アプリを前面に開いてください"; return }
+        if (!isX) {
+            log.record("x_not_foreground")
+            message?.text = "X公式アプリを前面に開いてください。ログ: " + log.location()
+            return
+        }
         xResearchActive = true
         minimizeForResearch?.invoke()
         val token = ++xResearchToken
         scope.launch {
             val memory = EpisodeMemory(this@ChromeAssistService)
-            var log: XResearchLog? = null
             try {
-                log = XResearchLog(this@ChromeAssistService)
                 log.record("research_started", "queries=" + terms.size)
                 var capturedScreens = 0
                 var incomplete = false
@@ -509,6 +523,7 @@ class ChromeAssistService : AccessibilityService() {
         val stop = Button(this).apply { text = "停止"; setOnClickListener {
             autoRunning = false; runToken++; stepsRemaining = 0; recentActions.clear()
             xResearchActive = false; xResearchToken++
+            runCatching { activeXLog?.record("stopped_by_user") }
             proposedIndex = null; proposedAction = null; approve?.isEnabled = false
             message?.text = "停止しました"
         } }
