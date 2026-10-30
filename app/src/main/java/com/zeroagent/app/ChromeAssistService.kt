@@ -81,6 +81,7 @@ class ChromeAssistService : AccessibilityService() {
     private var xResearchActive = false
     private var xResearchToken = 0
     private var activeXLog: XResearchLog? = null
+    private var showXResearchPanel: (() -> Unit)? = null
     private var minimizeForResearch: (() -> Unit)? = null
 
     private val researchQueryStore by lazy { ResearchQueryStore(this) }
@@ -317,7 +318,7 @@ class ChromeAssistService : AccessibilityService() {
                 val searchReady = try { searchNodes.any { it.isEditable && !it.isPassword } }
                     finally { searchNodes.forEach { it.recycle() } }
                 if (!searchReady && !xClickSearch()) {
-                    log?.record("search_tab_missing")
+                    log.record("research_stopped", "search_tab_missing")
                     message?.text = "検索タブが見つかりません。Xの検索画面を表示して再実行してください"
                     memory.record("x.com", query, "search-tab", "", "", "failed", "検索タブが見つからない")
                     break
@@ -325,7 +326,7 @@ class ChromeAssistService : AccessibilityService() {
                 if (!searchReady) delay(1000)
                 if (!xResearchActive || token != xResearchToken) break
                 if (!xFillSearch(query)) {
-                    log?.record("search_input_missing")
+                    log.record("research_stopped", "search_input_missing")
                     message?.text = "検索欄を手動で開いてから再実行してください"
                     memory.record("x.com", query, "search-input", "", "", "failed", "検索欄が見つからない")
                     break
@@ -337,7 +338,7 @@ class ChromeAssistService : AccessibilityService() {
                 val beforeSubmit = screenFingerprint().orEmpty()
                 val submitted = xSubmitSearch()
                 if (!submitted) {
-                    log?.record("search_submit_failed")
+                    log.record("research_stopped", "search_submit_failed")
                     message?.text = "検索の自動確定に失敗しました。キーボードの検索を押して再実行してください"
                     memory.record("x.com", query, "search-submit", beforeSubmit.take(80), "", "failed",
                         "検索IMEアクション・検索ボタンが利用できない")
@@ -347,7 +348,7 @@ class ChromeAssistService : AccessibilityService() {
                 if (!xResearchActive || token != xResearchToken) break
                 val afterSubmit = screenFingerprint().orEmpty()
                 if (beforeSubmit == afterSubmit) {
-                    log?.record("search_no_screen_change")
+                    log.record("research_stopped", "search_no_screen_change")
                     message?.text = "検索結果への遷移を確認できませんでした。Xの画面を確認してください"
                     memory.record("x.com", query, "search-submit", beforeSubmit.take(80),
                         afterSubmit.take(80), "unknown", "検索操作後に画面変化を確認できない")
@@ -355,7 +356,7 @@ class ChromeAssistService : AccessibilityService() {
                 }
                 memory.record("x.com", query, "search-submit", beforeSubmit.take(80),
                     afterSubmit.take(80), "unknown", "画面変化あり。検索結果かは収集で確認")
-                for (page in 1..4) {
+                for (page in 1..5) {
                     if (!xResearchActive || token != xResearchToken) break
                     val before = screenFingerprint().orEmpty()
                     val relevant = hasRelevantResult(query)
@@ -400,12 +401,14 @@ class ChromeAssistService : AccessibilityService() {
                     memory.record("x.com", query, "read-results", "", before.take(80),
                         "unknown",
                         if (saved > 0) "いいね数を含む候補を保存" else "候補を抽出できず")
-                    message?.text = "X調査 $page/4：関連テキスト ${if (relevant) "あり" else "なし"}、スクショ ${if (screenshot != null) "保存" else "未保存"}、候補 $saved 件"
-                    if (page < 4) {
+                    message?.text = "X調査 $page/5：関連テキスト ${if (relevant) "あり" else "なし"}、スクショ ${if (screenshot != null) "保存" else "未保存"}、候補 $saved 件"
+                    if (page < 5) {
                         val scrolled = scrollXResults()
                         log?.record("scroll", "page=" + page + "; success=" + scrolled)
                         if (!scrolled) {
                             incomplete = true
+                            log.record("research_stopped", "scroll_unavailable; page=" + page)
+                            message?.text = "スクロールできず停止（画面 " + page + "/5）。ログ: " + log.location()
                             break
                         }
                         delay(1600)
@@ -420,13 +423,13 @@ class ChromeAssistService : AccessibilityService() {
                     }
                 }
             } catch (e: Exception) {
-                log?.record("research_error", e.javaClass.simpleName)
+                runCatching { log.record("research_stopped", "exception=" + e.javaClass.simpleName) }
                 message?.text = "X調査エラー: " + e.message.orEmpty().take(100)
             } finally {
-                runCatching { log?.record("research_finished", "active=" + xResearchActive) }
+                runCatching { log.record("research_finished", "active=" + xResearchActive) }
                 xResearchActive = false
-                val path = log?.location()
-                if (path != null) message?.text = message?.text.toString().take(160) + "\n診断ログ: " + path
+                message?.text = message?.text.toString().take(160) + "\n診断ログ: " + log.location()
+                showXResearchPanel?.invoke()
             }
         }
     }
@@ -536,7 +539,7 @@ class ChromeAssistService : AccessibilityService() {
         val stop = Button(this).apply { text = "停止"; setOnClickListener {
             autoRunning = false; runToken++; stepsRemaining = 0; recentActions.clear()
             xResearchActive = false; xResearchToken++
-            runCatching { activeXLog?.record("stopped_by_user") }
+            runCatching { activeXLog?.record("research_stopped", "stopped_by_user") }
             proposedIndex = null; proposedAction = null; approve?.isEnabled = false
             message?.text = "停止しました"
         } }
@@ -564,6 +567,7 @@ class ChromeAssistService : AccessibilityService() {
             if (layout.isAttachedToWindow) manager.updateViewLayout(layout, params)
         }
         minimizeForResearch = { setCompact(true) }
+        showXResearchPanel = { setCompact(false) }
         var startRawX = 0f
         var startRawY = 0f
         var startPanelX = 0
