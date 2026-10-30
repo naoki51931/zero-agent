@@ -16,6 +16,7 @@ import kotlin.coroutines.resume
 import android.graphics.Path
 import android.accessibilityservice.GestureDescription
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import android.widget.CheckBox
 import android.os.Bundle
 import android.content.Intent
@@ -361,10 +362,13 @@ class ChromeAssistService : AccessibilityService() {
                     val before = screenFingerprint().orEmpty()
                     val relevant = hasRelevantResult(query)
                     // A text-only gate misses image posts and cards with split accessibility labels.
-                    val screenshot = captureResearchEvidence()
+                    val screenshot = withTimeoutOrNull(12000L) { captureResearchEvidence() }
                     log?.record("screen_capture", "page=" + page + "; text_candidate=" + relevant + "; saved=" + (screenshot != null))
                     if (screenshot != null) capturedScreens++
-                    else incomplete = true
+                    else {
+                        incomplete = true
+                        log.record("capture_unavailable", "page=" + page + "; screenshot failed or timed out")
+                    }
                     val saved = if (screenshot != null) xCollect(query) else 0
                     if (screenshot != null) {
                         val candidateLabels = xEvidenceLabels(query)
@@ -541,7 +545,8 @@ class ChromeAssistService : AccessibilityService() {
             xResearchActive = false; xResearchToken++
             runCatching { activeXLog?.record("research_stopped", "stopped_by_user") }
             proposedIndex = null; proposedAction = null; approve?.isEnabled = false
-            message?.text = "停止しました"
+            message?.text = "停止しました。診断ログ: " + (activeXLog?.location() ?: "未作成")
+            showXResearchPanel?.invoke()
         } }
         approve = accept
         val dragHandle = TextView(this).apply {
