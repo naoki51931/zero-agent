@@ -12,6 +12,7 @@ import java.util.Locale
 /** Bounded, diagnostic-only event log in Downloads/ZeroAgent; never stores credentials or screen text. */
 class XResearchLog(private val context: Context) {
     private val entries = mutableListOf<String>()
+    private val fallback = java.io.File(context.filesDir, "x_research_latest.jsonl")
     private val session = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
     private val name = "zero_agent_x_research_" + session + ".jsonl"
     private val uri by lazy {
@@ -24,12 +25,18 @@ class XResearchLog(private val context: Context) {
             ?: error("Cannot create diagnostic log")
     }
 
+    init {
+        // Create a visible file immediately, even if validation stops the research before launch.
+        record("log_initialized")
+    }
+
     @Synchronized
     fun record(event: String, detail: String = "") {
         val row = JSONObject().put("at", System.currentTimeMillis())
             .put("event", event.take(80)).put("detail", detail.take(240)).toString()
         entries.add(row)
         if (entries.size > 600) entries.removeAt(0)
+        runCatching { fallback.writeText(entries.joinToString("\\n") + "\\n") }
         flush()
     }
 
