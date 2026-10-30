@@ -36,7 +36,7 @@ class XResearchLog(private val context: Context) {
             .put("event", event.take(80)).put("detail", detail.take(240)).toString()
         entries.add(row)
         if (entries.size > 600) entries.removeAt(0)
-        runCatching { fallback.writeText(entries.joinToString("\\n") + "\\n") }
+        runCatching { fallback.writeText(entries.joinToString("\n") + "\n") }
         flush()
     }
 
