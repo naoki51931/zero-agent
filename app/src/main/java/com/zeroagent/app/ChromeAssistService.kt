@@ -141,11 +141,63 @@ class ChromeAssistService : AccessibilityService() {
     private fun xClickSearch(): Boolean {
         val items = xNodes()
         return try {
-            items.firstOrNull {
-                it.isClickable && Regex("^(検索|Search|Explore)(タブ)?$", RegexOption.IGNORE_CASE)
-                    .containsMatchIn(xLabel(it))
-            }?.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: false
+            val search = items.firstOrNull { node ->
+                node.isClickable && !node.isEditable &&
+                    Regex("(?i)^(?:検索|検索タブ|Search|Explore|Search and explore|検索と探索|検索する)$")
+                        .matches(xLabel(node).trim())
+            }
+            search?.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: false
         } finally { items.forEach { it.recycle() } }
+    }
+
+    /** From a scrolled results feed, first try the visible search control, then Android back. */
+    private suspend fun xPrepareSearch(queryIndex: Int, log: XResearchLog): Boolean {
+        fun hasEditableSearch(): Boolean {
+            val items = xNodes()
+            return try { items.any { it.isEditable && !it.isPassword && it.isVisibleToUser } }
+                finally { items.forEach { it.recycle() } }
+        }
+        if (hasEditableSearch()) {
+            log.record("search_ready", "index=" + queryIndex + "; method=editable")
+            return true
+        }
+        if (xClickSearch()) {
+            delay(900)
+            if (hasEditableSearch()) {
+                log.record("search_ready", "index=" + queryIndex + "; method=tab")
+                return true
+            }
+        }
+        // Search results may hide the search tab after scrolling. Back returns to the
+        // previous X search surface; never use this fallback for the initial query.
+        if (queryIndex > 0) {
+            repeat(2) { attempt ->
+                val root = rootInActiveWindow
+                val inX = root?.packageName?.toString() == "com.twitter.android"
+                root?.recycle()
+                if (!inX) {
+                    log.record("search_navigation_aborted", "X not foreground")
+                    return false
+                }
+                val back = performGlobalAction(GLOBAL_ACTION_BACK)
+                log.record("search_navigation_back", "attempt=" + (attempt + 1) + "; success=" + back)
+                if (!back) return false
+                delay(1000)
+                if (hasEditableSearch()) {
+                    log.record("search_ready", "index=" + queryIndex + "; method=back")
+                    return true
+                }
+                if (xClickSearch()) {
+                    delay(850)
+                    if (hasEditableSearch()) {
+                        log.record("search_ready", "index=" + queryIndex + "; method=back_tab")
+                        return true
+                    }
+                }
+            }
+        }
+        log.record("search_navigation_failed", "index=" + queryIndex)
+        return false
     }
 
     private fun xFillSearch(term: String): Boolean {
@@ -315,16 +367,12 @@ class ChromeAssistService : AccessibilityService() {
                 for ((queryIndex, query) in terms.withIndex()) {
                 message?.text = "X検索 ${queryIndex + 1}/${terms.size}: $query"
                 log?.record("query_started", "index=" + queryIndex + "; length=" + query.length)
-                val searchNodes = xNodes()
-                val searchReady = try { searchNodes.any { it.isEditable && !it.isPassword } }
-                    finally { searchNodes.forEach { it.recycle() } }
-                if (!searchReady && !xClickSearch()) {
-                    log.record("research_stopped", "search_tab_missing")
-                    message?.text = "検索タブが見つかりません。Xの検索画面を表示して再実行してください"
-                    memory.record("x.com", query, "search-tab", "", "", "failed", "検索タブが見つからない")
+                if (!xPrepareSearch(queryIndex, log)) {
+                    log.record("research_stopped", "search_navigation_failed; index=" + queryIndex)
+                    message?.text = "次の検索欄へ移動できず停止。ログ: " + log.location()
+                    memory.record("x.com", query, "search-tab", "", "", "failed", "検索画面への復帰に失敗")
                     break
                 }
-                if (!searchReady) delay(1000)
                 if (!xResearchActive || token != xResearchToken) break
                 if (!xFillSearch(query)) {
                     log.record("research_stopped", "search_input_missing")
