@@ -58,6 +58,14 @@ class XResearchResultsActivity : Activity() {
             val rows = ResearchEvidenceStore(this).use { store ->
                 store.exportJson().optJSONArray("records")
             }
+            val imageLikes = ResearchEvidenceStore(this).use { it.imageLikes() }
+            body.addView(text("画像から読み取ったいいね数: " + imageLikes.length() + " 件", 18f))
+            body.addView(text("AI画像解析による推定値です。投稿との対応・数字は未検証です。", 12f))
+            for (i in 0 until imageLikes.length()) {
+                val item = imageLikes.optJSONObject(i) ?: continue
+                body.addView(text("♡ " + item.optLong("likes") + "  [" + item.optString("query") + "]\n" +
+                    item.optString("text"), 15f))
+            }
             val total = rows?.length() ?: 0
             body.addView(text("保存済み画面証拠候補: $total 件", 18f))
             body.addView(text("※ 同一投稿の重複を含む可能性があります。", 12f))
