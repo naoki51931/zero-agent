@@ -32,7 +32,10 @@ class ResearchVisionReviewer(private val context: Context) {
             "Associate likes with the HEART icon of the same post, not reposts, replies or views. " +
             "Convert K and 万 to integers. Omit uncertain associations; return [] if none. Query: " + query.take(80)
         val raw = request(key, model, uri, prompt, 3500).trim()
-        val json = JSONArray(raw.removePrefix("```json").removePrefix("```").removeSuffix("```").trim())
+        val start = raw.indexOf('[')
+        val end = raw.lastIndexOf(']')
+        require(start >= 0 && end > start) { "画像AIの返答にJSON配列がありません: " + raw.take(120) }
+        val json = JSONArray(raw.substring(start, end + 1))
         val safe = JSONArray()
         for (i in 0 until minOf(json.length(), 8)) {
             val item = json.optJSONObject(i) ?: continue
@@ -78,7 +81,7 @@ class ResearchVisionReviewer(private val context: Context) {
                 .post(payload.toString().toRequestBody("application/json".toMediaType()))
                 .build()
             OkHttpClient().newCall(request).execute().use { response ->
-                require(response.isSuccessful) { "AI review HTTP " + response.code }
+                require(response.isSuccessful) { "OpenRouter HTTP " + response.code + ": " + response.body?.string().orEmpty().take(160) }
                 JSONObject(response.body?.string().orEmpty()).getJSONArray("choices")
                     .getJSONObject(0).getJSONObject("message").getString("content").take(limit)
             }
