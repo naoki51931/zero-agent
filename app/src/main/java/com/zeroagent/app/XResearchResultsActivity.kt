@@ -67,34 +67,62 @@ class XResearchResultsActivity : Activity() {
                 store.exportJson().optJSONArray("records")
             }
             val settings = LocalSettings(this)
-            if (settings.get("autoVisionReview") == "true" && settings.get("apiKey").isNotBlank() && settings.get("model").isNotBlank()) {
-                body.addView(Button(this).apply {
-                    text = "保存済み画像からいいね数を解析（最大10画面・API料金が発生）"
-                    setOnClickListener { button ->
-                        isEnabled = false
-                        text = "解析中..."
-                        scope.launch {
-                            var saved = 0
-                            var errors = 0
-                            val seen = mutableSetOf<String>()
-                            val targets = (0 until (rows?.length() ?: 0)).mapNotNull { rows?.optJSONObject(it) }
-                                .filter { seen.add(it.optString("screenshot_uri")) }.take(10)
-                            for (row in targets) {
-                                try {
-                                    val items = ResearchVisionReviewer(this@XResearchResultsActivity).extractLikes(
-                                        settings.get("apiKey"), settings.get("model"), row.optString("query"), row.optString("screenshot_uri"))
-                                    saved += withContext(Dispatchers.IO) { ResearchEvidenceStore(this@XResearchResultsActivity).use {
-                                        it.saveImageLikes(row.optString("query"), row.optString("screenshot_uri"), items)
-                                    } }
-                                } catch (_: Exception) { errors++ }
-                            }
-                            android.widget.Toast.makeText(this@XResearchResultsActivity,
-                                "画像解析完了: " + saved + " 件、失敗 " + errors + " 画面", android.widget.Toast.LENGTH_LONG).show()
-                            showResults()
-                        }
-                    }
-                })
+            val configured = settings.get("apiKey").isNotBlank() && settings.get("model").isNotBlank()
+            val enabled = settings.get("autoVisionReview") == "true"
+            if (!configured || !enabled) {
+                body.addView(text("画像解析を実行するには、OpenRouter APIキー・画像対応モデル・画像AI解析の許可を設定してください。" +
+                    " 現在: APIキー=" + (if (settings.get("apiKey").isNotBlank()) "設定済" else "未設定") +
+                    "、モデル=" + (if (settings.get("model").isNotBlank()) settings.get("model") else "未設定") +
+                    "、画像解析許可=" + (if (enabled) "有効" else "無効"), 13f))
             }
+            val status = text("未実行。保存済み画像を解析すると結果がここに表示されます。", 13f)
+            val analyzeButton = Button(this).apply {
+                text = "保存済み画像のいいね数を解析（最大10画面・API料金あり）"
+                isEnabled = configured && enabled
+                setOnClickListener {
+                    isEnabled = false
+                    scope.launch {
+                        var saved = 0
+                        var errors = 0
+                        var empty = 0
+                        val seen = mutableSetOf<String>()
+                        val targets = (0 until (rows?.length() ?: 0)).mapNotNull { rows?.optJSONObject(it) }
+                            .filter { it.optString("screenshot_uri").startsWith("content://") &&
+                                seen.add(it.optString("screenshot_uri")) }.take(10)
+                        if (targets.isEmpty()) {
+                            status.text = "解析可能な保存画像がありません。"
+                            isEnabled = true
+                            return@launch
+                        }
+                        for ((index, row) in targets.withIndex()) {
+                            status.text = "画像解析中: " + (index + 1) + "/" + targets.size +
+                                "、抽出 " + saved + " 件、失敗 " + errors + " 件"
+                            try {
+                                val items = ResearchVisionReviewer(this@XResearchResultsActivity).extractLikes(
+                                    settings.get("apiKey"), settings.get("model"),
+                                    row.optString("query"), row.optString("screenshot_uri"))
+                                if (items.length() == 0) empty++
+                                saved += withContext(Dispatchers.IO) {
+                                    ResearchEvidenceStore(this@XResearchResultsActivity).use {
+                                        it.saveImageLikes(row.optString("query"), row.optString("screenshot_uri"), items)
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                errors++
+                                status.text = "解析失敗 (" + (index + 1) + "/" + targets.size + "): " +
+                                    e.javaClass.simpleName + " " + e.message.orEmpty().take(120)
+                            }
+                        }
+                        val result = "画像解析完了: 新規 " + saved + " 件、数値なし " + empty +
+                            " 画面、エラー " + errors + " 画面"
+                        showResults()
+                        body.addView(text(result, 15f))
+                        if (errors > 0) body.addView(text("画像対応モデル、API残高、保存画像の読み取りを確認してください。", 13f))
+                    }
+                }
+            }
+            body.addView(analyzeButton)
+            body.addView(status)
             val imageLikes = ResearchEvidenceStore(this).use { it.imageLikes() }
             body.addView(text("画像から読み取ったいいね数: " + imageLikes.length() + " 件", 18f))
             body.addView(text("AI画像解析による推定値です。投稿との対応・数字は未検証です。", 12f))
