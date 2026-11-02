@@ -220,25 +220,24 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                 trace("model checkpoint check onCreatePage=$onCreatePage headerMatch=$modelInEditorHeader target=${requestedModel.take(70)} header=${headerLabels.filter { it.contains("model", true) || it.contains("モデル") || it.contains("illustrious", true) || it.contains("3in1", true) }.take(8).joinToString(" | ").take(260)}")
             }
             if (modelInEditorHeader && state in setOf(
+                    "awaiting_create", "awaiting_create_navigation",
                     "awaiting_model_menu", "awaiting_model_choice",
                     "awaiting_model_choice_review", "awaiting_model_verification")) {
-                trace("manual model recognized in creation editor: " + requestedModel.take(70) +
-                    "; skipping model menu")
+                trace("active model confirmed: " + requestedModel.take(70) +
+                    "; continuing without reopening model selector")
                 settings.put("seaartModelConfirmed", settings.get("seaartPendingSince"))
                 settings.put("seaartLastError", "")
-                if (settings.get("seaartPendingLora").isBlank()) {
-                    trace("LoRA unspecified after model recognition; proceeding directly to prompt")
-                    next("awaiting_editor")
-                } else next("awaiting_lora_menu")
-                return
-            }
-            // Recovery: if the editor has loaded while the previous tab-click
-            // state is still pending, jump directly to model selection.
-            if (onCreatePage && state in setOf("awaiting_create", "awaiting_create_navigation")) {
-                trace("editor recovery: $state -> awaiting_model_menu")
-                settings.put("seaartLastError", "")
-                next("awaiting_model_menu")
-                return
+                state = if (settings.get("seaartPendingLora").isBlank()) {
+                    trace("LoRA unspecified; proceeding directly to prompt")
+                    "awaiting_editor"
+                } else "awaiting_lora_menu"
+                settings.put("seaartPendingState", state)
+                // Continue within the same Chrome accessibility snapshot.
+                // Waiting for another accessibility event can strand the run.
+            } else if (onCreatePage && state in setOf("awaiting_create", "awaiting_create_navigation")) {
+                trace("editor recovered, model not yet confirmed: $state -> awaiting_model_menu")
+                state = "awaiting_model_menu"
+                settings.put("seaartPendingState", state)
             }
             when (state) {
                 "awaiting_create" -> {
