@@ -190,6 +190,23 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                 }
                 return
             }
+            // The user may choose the checkpoint manually. The editor's top
+            // model label is authoritative for this opt-in workflow; do not
+            // click model result cards, which open /models/detail instead.
+            val requestedModel = settings.get("seaartPendingModel").ifBlank { "GR-Illustrious 3in1" }
+            val modelInEditorHeader = onCreatePage && nodes.any { node ->
+                inHeader(node) && label(node).contains(requestedModel, ignoreCase = true)
+            }
+            if (modelInEditorHeader && state in setOf(
+                    "awaiting_model_menu", "awaiting_model_choice",
+                    "awaiting_model_choice_review", "awaiting_model_verification")) {
+                trace("manual model recognized in creation editor: " + requestedModel.take(70) +
+                    "; skipping model menu")
+                settings.put("seaartModelConfirmed", settings.get("seaartPendingSince"))
+                settings.put("seaartLastError", "")
+                next("awaiting_lora_menu")
+                return
+            }
             // Recovery: if the editor has loaded while the previous tab-click
             // state is still pending, jump directly to model selection.
             if (onCreatePage && state in setOf("awaiting_create", "awaiting_create_navigation")) {
@@ -259,8 +276,8 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                     next("awaiting_model_choice_review")
                 }
                 "awaiting_model_choice_review" -> {
-                    // Wait for a user-visible correction rather than repeatedly
-                    // opening the wrong model page or spending generation credits.
+                    // Keep checking the editor header for a user-selected model.
+                    trace("waiting for manual model selection in creation editor")
                     return
                 }
                 "awaiting_lora_menu" -> {
