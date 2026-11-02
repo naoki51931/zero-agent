@@ -77,7 +77,7 @@ class XResearchResultsActivity : Activity() {
             }
             val status = text("未実行。保存済み画像を解析すると結果がここに表示されます。", 13f)
             val analyzeButton = Button(this).apply {
-                text = "保存済み画像のいいね数を解析（最大10画面・API料金あり）"
+                text = "同一CP・キャラ生成関連を優先していいね数解析（最大10画面・API料金あり）"
                 isEnabled = configured && enabled
                 setOnClickListener {
                     isEnabled = false
@@ -87,8 +87,13 @@ class XResearchResultsActivity : Activity() {
                         var empty = 0
                         val seen = mutableSetOf<String>()
                         val targets = (0 until (rows?.length() ?: 0)).mapNotNull { rows?.optJSONObject(it) }
-                            .filter { it.optString("screenshot_uri").startsWith("content://") &&
-                                seen.add(it.optString("screenshot_uri")) }.take(10)
+                            .filter { it.optString("screenshot_uri").startsWith("content://") }
+                            .sortedWith(compareByDescending<JSONObject> {
+                                XResearchPriority.score(it.optString("query") + " " + it.optString("candidate_text"))
+                            }.thenByDescending { it.optLong("created_at") })
+                            .filter { seen.add(it.optString("screenshot_uri")) }.take(10)
+                        status.text = "キャラクター生成に関連する検索語・候補を優先して " +
+                            targets.size + " 画面解析します。"
                         if (targets.isEmpty()) {
                             status.text = "解析可能な保存画像がありません。"
                             isEnabled = true
