@@ -756,6 +756,19 @@ class ChromeAssistService : AccessibilityService() {
             event.eventType in setOf(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
                 AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)) {
             val pending = LocalSettings(this).get("seaartPendingState")
+            if (pending == "download_requested" && !seaartImportPolling) {
+                seaartImportPolling = true
+                scope.launch {
+                    try {
+                        repeat(36) {
+                            if (LocalSettings(this@ChromeAssistService).get("seaartPendingState") != "download_requested") return@launch
+                            val result = SeaArtDownloadImporter.scan(this@ChromeAssistService)
+                            if (result.status in setOf("imported", "ambiguous", "already_imported", "permission_needed")) return@launch
+                            delay(5000)
+                        }
+                    } finally { seaartImportPolling = false }
+                }
+            }
             if (pending in setOf("awaiting_editor", "awaiting_generate", "awaiting_download") && !seaartFlowBusy) {
                 seaartFlowBusy = true
                 scope.launch {
