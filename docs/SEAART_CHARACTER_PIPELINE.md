@@ -1,30 +1,15 @@
-# X調査 → AIキャラ選択 → SeaArt画像 → 投稿待ち
+# Zero Agent: X調査 → AIキャラ選択 → SeaArt (Android直接操作) → 投稿待ち
 
-## 実装済み
-- Xスクリーンショットから抽出した、いいね数とテキストのペアを読み込み。データが空ならエラーを明示。
-- 関連性・観測いいね数で候補を最大25件に絞り、OpenRouterのAIがオリジナルのアニメキャラ案・SeaArt用プロンプト・ネガティブプロンプト・投稿文下書きを提案。
-- 提案をアプリ専用ストレージのJSONに保存。
-- SeaArtをブラウザで開き、プロンプトをクリップボードにコピー。
-- SeaArtで生成した画像をユーザーが選択し、アプリ専用ストレージへコピー。状態を ready_for_post_review に変更。
-- 投稿操作は未実装。公開投稿は実行しない。
+## Android直接操作（試験実装）
+- Xの画像解析で取得した推定いいね数から、AIがオリジナルアニメキャラ案・SeaArt用プロンプトを作成する。
+- 「AndroidでSeaArt生成を開始」からChromeでSeaArtを開く。
+- Zero Agentのアクセシビリティサービスが有効で、SeaArtの画面が認識できれば、入力欄にプロンプトを設定し、明確な「生成」ボタンを一度だけ押す。
+- ログイン、モデル選択、料金確認、完了待ち、画像のダウンロード・自動保存はまだ実装していない。画面変更で動かなくなる場合は自動操作を中止し、手動操作・画像取り込みを利用する。
+- 完成画像を「SeaArtで作った画像を保存（投稿待ち）」から取り込むと、端末内で ready_for_post_review にする。
+- 投稿は行わない。
 
-## 未実装・制約
-- SeaArt上の画像生成開始・完了確認・画像自動取得は未実装。公式SeaArt CLI/MCPはデスクトップ向けであり、Androidアプリからの安全な認証付きAPI接続仕様は未確定。
-- Xいいね数は未検証の推定値。伸びる保証はない。
-- 外部AIへのデータ送信にはOpenRouter API料金が発生する場合がある。
-- 画像はユーザーが選択して初めてアプリへ取り込まれる。
-- 次工程はユーザーによる投稿レビュー・承認を挟む設計にする。
-- 実機ビルドと操作検証が必要。
-
-## SeaArt Bridge (experimental)
-
-公式 SeaArt CLI: https://github.com/seaartpublic/cli
-
-1. 信頼できるLinux/macOS/Windowsホストに公式CLIをインストールし、seaart login で認証する。
-2. seaart models list で画像モデルIDとバージョンIDを確認する。
-3. Python 3.10+で tools/seaart_bridge.py を起動する。環境変数 ZERO_AGENT_BRIDGE_TOKEN（24文字以上のランダム値）, SEAART_MODEL_ID, SEAART_MODEL_VER_ID を設定する。
-4. HTTPSリバースプロキシ経由でBridgeを公開し、アクセス制御を設定する。CLI認証済みホストをインターネットに無制限公開しないこと。
-5. Zero Agentの「SeaArt画像生成・投稿準備」画面にHTTPS Bridge URLとトークンを入力し保存。
-6. AI生成案の「SeaArtで自動画像生成・保存」を押すと1画像を生成して端末内の投稿待ちキューへ保存する。
-
-SeaArt CLIの出力形式はリリースで変化する可能性がある。BridgeはHTTPS画像URLを取得できなければエラーを返す。SeaArtのモデルによって費用がかかる場合がある。Bridge自体はSeaArtへのログイン処理をしない。投稿の自動化は未実装。
+## 注意
+- SeaArtのUIは変化する。現在の実装は実機未検証。
+- 画像生成にはSeaArt側でクレジットが消費される場合がある。ユーザーが生成開始を押した場合だけ操作する。
+- Bridge/Python/サーバーは不要。以前の tools/seaart_bridge.py と SeaArtBridgeClient.kt は削除済み。
+- 保存済みの古いBridge設定値は利用しない。

@@ -52,27 +52,8 @@ class CharacterDraftActivity : Activity() {
     private fun render() {
         body.removeAllViews()
         body.addView(label("SeaArt画像生成・投稿準備", 22f))
-        val settings = LocalSettings(this)
-        val endpoint = EditText(this).apply {
-            hint = "SeaArt Bridge HTTPS URL"
-            setSingleLine(true)
-            setText(settings.get("seaartBridgeUrl"))
-        }
-        val token = EditText(this).apply {
-            hint = "SeaArt Bridge token"
-            setSingleLine(true)
-            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
-            setText(settings.get("seaartBridgeToken"))
-        }
-        body.addView(endpoint)
-        body.addView(token)
-        body.addView(button("SeaArt接続設定を保存") {
-            settings.put("seaartBridgeUrl", endpoint.text.toString().trim().trimEnd('/'))
-            settings.put("seaartBridgeToken", token.text.toString().trim())
-            notify("接続設定を保存しました")
-        })
-
         body.addView(label("Xで抽出した未検証のいいね数からAIがオリジナルのアニメキャラ案を選びます。いいね数の予測は保証されません。"))
+        body.addView(label("SeaArt操作状態: " + LocalSettings(this).get("seaartPendingState", "未開始") + "。生成後の画像保存は、現在は手動取り込みで確認してください。"))
         body.addView(button("AIにキャラを選ばせて生成案を作成（OpenRouter料金あり）") {
             val settings = LocalSettings(this)
             if (settings.get("apiKey").isBlank() || settings.get("model").isBlank()) {
@@ -98,19 +79,23 @@ class CharacterDraftActivity : Activity() {
             body.addView(label("生成プロンプト:\n" + row.optString("prompt")))
             body.addView(label("除外プロンプト:\n" + row.optString("negative_prompt")))
             body.addView(label("投稿用下書き:\n" + row.optString("caption")))
-            body.addView(button("SeaArtで自動画像生成・保存（料金が発生する場合あり）") {
-                scope.launch {
-                    try {
-                        val saved = SeaArtBridgeClient.generateAndSave(
-                            this@CharacterDraftActivity, id, row.optString("prompt"))
-                        if (saved) {
-                            notify("画像を保存しました。投稿レビュー待ち")
-                            render()
-                        } else notify("画像の保存に失敗しました")
-                    } catch (e: Exception) {
-                        notify("SeaArt生成失敗: " + e.message.orEmpty().take(140))
-                    }
+            body.addView(button("AndroidでSeaArt生成を開始（Chrome自動操作）") {
+                val settings = LocalSettings(this)
+                settings.put("seaartPendingId", id)
+                settings.put("seaartPendingPrompt", row.optString("prompt"))
+                settings.put("seaartPendingState", "awaiting_editor")
+                settings.put("seaartPendingSince", System.currentTimeMillis().toString())
+                notify("ChromeのSeaArtを開きます。ログイン済みであることを確認してください")
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.seaart.ai/ja/")))
+                } catch (e: Exception) {
+                    settings.put("seaartPendingState", "")
+                    notify("SeaArtを開けません: " + e.message)
                 }
+            })
+            body.addView(button("SeaArt自動操作を中止") {
+                LocalSettings(this).put("seaartPendingState", "")
+                notify("SeaArt操作を中止しました")
             })
             body.addView(button("プロンプトをコピーしてSeaArtを開く") {
                 val prompt = row.optString("prompt") + "\nNegative: " + row.optString("negative_prompt")
