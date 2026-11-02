@@ -61,7 +61,25 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
             when (state) {
                 "awaiting_create" -> {
                     // A distinct Create/創作 entry; don't confuse it with Generate.
-                    if (onCreatePage || click(find("^(創作|Create|AI創作|AI Creation)$"))) next("awaiting_editor")
+                    if (onCreatePage) {
+                        next("awaiting_editor")
+                    } else {
+                        // SeaArt's home page has a bottom navigation tab named 創作.
+                        val screenHeight = service.resources.displayMetrics.heightPixels
+                        val createTabs = nodes.filter {
+                            it.isVisibleToUser && Regex("^(創作|Create|AI創作|AI Creation)$", RegexOption.IGNORE_CASE).matches(label(it))
+                        }.sortedByDescending {
+                            val rect = android.graphics.Rect()
+                            it.getBoundsInScreen(rect)
+                            rect.centerY()
+                        }
+                        val bottomTab = createTabs.firstOrNull {
+                            val rect = android.graphics.Rect()
+                            it.getBoundsInScreen(rect)
+                            rect.centerY() > screenHeight / 2
+                        }
+                        if (click(bottomTab ?: createTabs.firstOrNull())) next("awaiting_editor")
+                    }
                 }
                 "awaiting_model_menu" -> {
                     // Only open an explicitly labelled model selector.
