@@ -93,7 +93,7 @@ object SeaArtDownloadImporter {
             }
             settings.put("seaartPostCopyName", copyName)
             val previousUris = settings.get("seaartPostCopyUris")
-            settings.put("seaartPostCopyUris", (previousUris + if (previousUris.isBlank()) "" else "\\n" + copyUri.toString()))
+            settings.put("seaartPostCopyUris", listOf(previousUris, copyUri.toString()).filter { it.isNotBlank() }.joinToString("|"))
             settings.put("seaartImportedNames", (used + name).joinToString("\\n"))
             val completed = (settings.get("seaartRepeatCompleted").toIntOrNull() ?: 0) + 1
             val total = (settings.get("seaartRepeatTotal").toIntOrNull() ?: 1).coerceIn(1, 20)
