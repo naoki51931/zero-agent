@@ -776,7 +776,7 @@ class ChromeAssistService : AccessibilityService() {
                         "Chromeアクセシビリティイベント受信 type=" + event.eventType + "\\n").takeLast(12000))
                 }
             }
-            if (pending in setOf("awaiting_create", "awaiting_create_navigation", "awaiting_model_menu", "awaiting_model_choice",
+            if (pending in setOf("awaiting_create", "awaiting_create_navigation", "awaiting_model_menu", "awaiting_model_choice", "awaiting_model_recovery", "awaiting_model_verification",
                     "awaiting_lora_menu", "awaiting_lora_choice", "awaiting_editor", "awaiting_prompt_confirmation",
                     "awaiting_generate", "awaiting_download", "download_requested")) {
                 minimizeForResearch?.invoke()
@@ -797,7 +797,7 @@ class ChromeAssistService : AccessibilityService() {
                             val prefs = LocalSettings(this@ChromeAssistService)
                             val current = prefs.get("seaartPendingState")
                             if (current !in setOf("awaiting_create", "awaiting_create_navigation",
-                                    "awaiting_model_menu", "awaiting_model_choice", "awaiting_lora_menu",
+                                    "awaiting_model_menu", "awaiting_model_choice", "awaiting_model_recovery", "awaiting_model_verification", "awaiting_lora_menu",
                                     "awaiting_lora_choice", "awaiting_editor", "awaiting_prompt_confirmation",
                                     "awaiting_generate")) break
                             val since = prefs.get("seaartPendingSince").toLongOrNull() ?: 0L
@@ -838,7 +838,7 @@ class ChromeAssistService : AccessibilityService() {
                     } finally { seaartImportPolling = false }
                 }
             }
-            if (pending in setOf("awaiting_create", "awaiting_create_navigation", "awaiting_model_menu", "awaiting_model_choice", "awaiting_lora_menu", "awaiting_lora_choice", "awaiting_editor", "awaiting_prompt_confirmation", "awaiting_generate", "awaiting_download") && !seaartFlowBusy) {
+            if (pending in setOf("awaiting_create", "awaiting_create_navigation", "awaiting_model_menu", "awaiting_model_choice", "awaiting_model_recovery", "awaiting_model_verification", "awaiting_lora_menu", "awaiting_lora_choice", "awaiting_editor", "awaiting_prompt_confirmation", "awaiting_generate", "awaiting_download") && !seaartFlowBusy) {
                 seaartFlowBusy = true
                 scope.launch {
                     try {
@@ -854,7 +854,7 @@ class ChromeAssistService : AccessibilityService() {
         if (isChrome) {
             browserTransitionToken++
             val seaartActive = LocalSettings(this).get("seaartPendingState") in setOf(
-                "awaiting_create", "awaiting_create_navigation", "awaiting_model_menu", "awaiting_model_choice",
+                "awaiting_create", "awaiting_create_navigation", "awaiting_model_menu", "awaiting_model_choice", "awaiting_model_recovery", "awaiting_model_verification",
                 "awaiting_lora_menu", "awaiting_lora_choice", "awaiting_editor", "awaiting_prompt_confirmation",
                 "awaiting_generate", "awaiting_download", "download_requested")
             if (seaartActive) minimizeForResearch?.invoke()
