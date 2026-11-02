@@ -161,6 +161,35 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                 trace("fallback gesture dispatched=$dispatched (navigation unverified)")
                 return dispatched
             }
+            val onModelDetail = nodes.any { label(it).contains("/models/detail", true) }
+            if (onModelDetail && state in setOf("awaiting_model_menu", "awaiting_model_choice", "awaiting_model_verification")) {
+                trace("model detail opened, not model applied; returning to editor")
+                settings.put("seaartModelConfirmed", "")
+                next("awaiting_model_recovery")
+                service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+                return
+            }
+            if (state == "awaiting_model_recovery") {
+                if (onCreatePage) {
+                    trace("returned to creation editor")
+                    next("awaiting_model_verification")
+                } else trace("waiting for creation editor after model detail")
+                return
+            }
+            if (state == "awaiting_model_verification") {
+                if (!onCreatePage) { trace("model verification waiting for editor"); return }
+                val target = settings.get("seaartPendingModel").ifBlank { "GR-Illustrious 3in1" }
+                if (nodes.any { inHeader(it) && label(it).contains(target, true) }) {
+                    trace("model verified in creation editor header: " + target.take(60))
+                    settings.put("seaartModelConfirmed", settings.get("seaartPendingSince"))
+                    next("awaiting_lora_menu")
+                } else {
+                    trace("model not verified in creation editor; stopped")
+                    settings.put("seaartLastError", "画像創作画面で指定モデルを確認できません")
+                    next("model_verification_failed")
+                }
+                return
+            }
             // Recovery: if the editor has loaded while the previous tab-click
             // state is still pending, jump directly to model selection.
             if (onCreatePage && state in setOf("awaiting_create", "awaiting_create_navigation")) {
