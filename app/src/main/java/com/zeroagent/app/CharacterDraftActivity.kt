@@ -79,10 +79,29 @@ class CharacterDraftActivity : Activity() {
             body.addView(label("生成プロンプト:\n" + row.optString("prompt")))
             body.addView(label("除外プロンプト:\n" + row.optString("negative_prompt")))
             body.addView(label("投稿用下書き:\n" + row.optString("caption")))
+            val modelInput = EditText(this).apply {
+                hint = "SeaArtモデル"
+                setSingleLine(true)
+                setText(row.optString("seaart_model", "GR-Illustrious 3in1"))
+            }
+            val loraInput = EditText(this).apply {
+                hint = "LoRA名（任意）"
+                setSingleLine(true)
+                setText(row.optString("seaart_lora"))
+            }
+            body.addView(label("AIのLoRA候補: " + row.optString("lora_hint", "未提案")))
+            body.addView(modelInput)
+            body.addView(loraInput)
+            body.addView(button("モデル・LoRAを保存") {
+                store.updateGenerationSettings(id, modelInput.text.toString(), loraInput.text.toString())
+                notify("モデル・LoRA設定を保存しました")
+            })
             body.addView(button("AndroidでSeaArt生成を開始（Chrome自動操作）") {
                 val settings = LocalSettings(this)
                 settings.put("seaartPendingId", id)
                 settings.put("seaartPendingPrompt", row.optString("prompt"))
+                settings.put("seaartPendingModel", modelInput.text.toString().ifBlank { "GR-Illustrious 3in1" })
+                settings.put("seaartPendingLora", loraInput.text.toString())
                 settings.put("seaartPendingState", "awaiting_editor")
                 settings.put("seaartPendingSince", System.currentTimeMillis().toString())
                 notify("ChromeのSeaArtを開きます。ログイン済みであることを確認してください")
