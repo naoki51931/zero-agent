@@ -644,11 +644,63 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                 }
                 "awaiting_download" -> {
                     if (nodes.any { Regex("(?i).*(generating|生成中|作成中|処理中).*").matches(label(it)) }) return
+                    // A generation produces a four-image result grid. Open a
+                    // result first; the browser's image context menu is only
+                    // available after the full-size image is displayed.
+                    val imageCandidates = nodes.filter { node ->
+                        val rect = Rect().also(node::getBoundsInScreen)
+                        node.isVisibleToUser && node.className?.toString()?.contains("Image", true) == true &&
+                            rect.width() in (screenHeight * 0.05f).toInt()..(service.resources.displayMetrics.widthPixels * 0.50f).toInt() &&
+                            rect.height() > 90 && rect.top > screenHeight * 0.12f &&
+                            rect.bottom < screenHeight * 0.80f
+                    }.sortedWith(compareBy({ node -> Rect().also(node::getBoundsInScreen).top },
+                        { node -> Rect().also(node::getBoundsInScreen).left }))
+                    trace("download grid image candidates=${imageCandidates.size}")
+                    val thumbnail = imageCandidates.firstOrNull()
+                    if (thumbnail != null && click(thumbnail)) {
+                        trace("opened first generated image; waiting for detail")
+                        next("awaiting_download_detail")
+                    } else trace("download detail not opened; waiting for visible image thumbnail")
+                }
+                "awaiting_download_detail" -> {
                     val download = find("^(ダウンロード|画像をダウンロード|Download|Download image|Save image)$")
                     if (download != null) {
-                        next("download_requested")
-                        if (!click(download)) next("download_click_failed")
+                        if (click(download)) {
+                            trace("detail download action clicked")
+                            next("download_requested")
+                        }
+                        return
                     }
+                    // Long press only a visible, large image, never an
+                    // arbitrary screen coordinate or an ad/result thumbnail.
+                    val image = nodes.filter { node ->
+                        val rect = Rect().also(node::getBoundsInScreen)
+                        node.isVisibleToUser && node.className?.toString()?.contains("Image", true) == true &&
+                            rect.width() > service.resources.displayMetrics.widthPixels * 0.60f &&
+                            rect.height() > screenHeight * 0.25f &&
+                            rect.centerY() > screenHeight * 0.20f
+                    }.maxByOrNull { node -> Rect().also(node::getBoundsInScreen).width() }
+                    if (image == null) {
+                        trace("download detail image not found; waiting for full-size image")
+                        return
+                    }
+                    val rect = Rect().also(image::getBoundsInScreen)
+                    val path = Path().apply { moveTo(rect.centerX().toFloat(), rect.centerY().toFloat()) }
+                    val sent = service.dispatchGesture(
+                        GestureDescription.Builder().addStroke(
+                            GestureDescription.StrokeDescription(path, 0, 850)
+                        ).build(), null, null)
+                    trace("detail image long-press dispatched=$sent bounds=${rect.flattenToString()}")
+                    if (sent) next("awaiting_image_download_menu")
+                }
+                "awaiting_image_download_menu" -> {
+                    val download = find("^(画像をダウンロード|ダウンロード|Download image|Save image|Download)$")
+                    if (download != null) {
+                        if (click(download)) {
+                            trace("Chrome image download menu selected")
+                            next("download_requested")
+                        }
+                    } else trace("Chrome image download menu not visible; waiting")
                 }
             }
         } finally { root.recycle() }
