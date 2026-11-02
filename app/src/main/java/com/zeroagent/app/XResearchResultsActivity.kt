@@ -61,6 +61,12 @@ class XResearchResultsActivity : Activity() {
     private fun showResults() {
         body.removeAllViews()
         body.addView(text("X調査結果（端末内保存）", 22f))
+        body.addView(Button(this).apply {
+            text = "次の工程：AIキャラ選択 → SeaArt画像生成 → 投稿準備"
+            setOnClickListener {
+                startActivity(Intent(this@XResearchResultsActivity, CharacterDraftActivity::class.java))
+            }
+        })
         body.addView(text("画面から抽出した未検証の候補です。個別投稿の真偽・いいね数は確定していません。", 13f))
         try {
             val rows = ResearchEvidenceStore(this).use { store ->
