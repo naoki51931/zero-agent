@@ -768,6 +768,14 @@ class ChromeAssistService : AccessibilityService() {
             event.eventType in setOf(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
                 AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)) {
             val pending = LocalSettings(this).get("seaartPendingState")
+            if (pending.isNotBlank()) {
+                val settings = LocalSettings(this)
+                if (settings.get("seaartChromeEventLogged") != settings.get("seaartPendingSince")) {
+                    settings.put("seaartChromeEventLogged", settings.get("seaartPendingSince"))
+                    settings.put("seaartActionLog", (settings.get("seaartActionLog") +
+                        "Chromeアクセシビリティイベント受信 type=" + event.eventType + "\\n").takeLast(12000))
+                }
+            }
             if (pending in setOf("awaiting_create", "awaiting_create_navigation", "awaiting_model_menu", "awaiting_model_choice",
                     "awaiting_lora_menu", "awaiting_lora_choice", "awaiting_editor",
                     "awaiting_generate", "awaiting_download", "download_requested")) {
