@@ -335,7 +335,45 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                         if (Regex("(?i).*(search|検索|url|アドレス|address|lora|model|モデル).*").matches(description)) return false
                         return node.isEditable
                     }
+                    // On SeaArt mobile, the compact bottom prompt bar is not
+                    // editable until it is tapped once to open the composer.
                     val candidates = nodes.filter(::isPromptField)
+                    val width = service.resources.displayMetrics.widthPixels
+                    val composerBar = nodes.filter { node ->
+                        if (!node.isVisibleToUser || node.isEditable) return@filter false
+                        val rect = Rect()
+                        node.getBoundsInScreen(rect)
+                        val text = label(node)
+                        rect.centerY() > screenHeight * 0.78f &&
+                            rect.centerX() > width * 0.25f &&
+                            rect.width() > width * 0.25f &&
+                            (text.contains("画像") || text.contains("プロンプト") ||
+                                text.contains("prompt", true) || text.contains("Txt2Img", true) ||
+                                text.length > 25)
+                    }.minByOrNull { node ->
+                        val rect = Rect()
+                        node.getBoundsInScreen(rect)
+                        rect.width() * rect.height()
+                    }
+                    val focused = candidates.any { it.isFocused }
+                    val lastTap = settings.get("seaartComposerTapAt").toLongOrNull() ?: 0L
+                    if (!focused && composerBar != null &&
+                        System.currentTimeMillis() - lastTap > 1800L) {
+                        val rect = Rect()
+                        composerBar.getBoundsInScreen(rect)
+                        val tapX = (rect.left + rect.width() * 0.55f).coerceIn(1f, (width - 2).toFloat())
+                        val tapY = rect.centerY().toFloat()
+                        val path = Path().apply { moveTo(tapX, tapY) }
+                        val gesture = GestureDescription.Builder()
+                            .addStroke(GestureDescription.StrokeDescription(path, 0, 100))
+                            .build()
+                        val tapped = service.dispatchGesture(gesture, null, null)
+                        trace("compact composer one-tap dispatched=$tapped bounds=${rect.flattenToString()}")
+                        if (tapped) {
+                            settings.put("seaartComposerTapAt", System.currentTimeMillis().toString())
+                            return
+                        }
+                    }
                     val promptNode = candidates.maxByOrNull { node ->
                         val rect = Rect()
                         node.getBoundsInScreen(rect)
@@ -365,6 +403,11 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                     }
                     // Contenteditable fields in Chrome sometimes reject SET_TEXT
                     // until focused. Never type into the address/search bar.
+                    if (!promptNode.isFocused) {
+                        val tapped = click(promptNode)
+                        trace("prompt editable tap=$tapped; waiting for focus")
+                        if (tapped) return
+                    }
                     promptNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
                     val entered = type(promptNode, prompt)
                     trace("prompt SET_TEXT=$entered currentLength=${current.length} targetLength=${prompt.length}")
