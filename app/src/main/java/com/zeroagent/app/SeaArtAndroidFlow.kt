@@ -79,7 +79,13 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                         rect.centerX() !in 0..width || rect.centerY() !in 0..height) null
                     else node to rect
                 }.sortedByDescending { it.second.centerY() }
-                val chosen = tabs.firstOrNull() ?: return false
+                val chosen = tabs.firstOrNull()
+                if (chosen == null) {
+                    nodes.lastOrNull { it.isScrollable && it.isVisibleToUser }
+                        ?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
+                    settings.put("seaartLastError", "画面下の創作タブを探索中")
+                    return false
+                }
                 if (click(chosen.first)) return true
                 // Some Chrome web navigation elements expose no ACTION_CLICK. Use a
                 // bounded gesture at the actual accessibility node, not a hardcoded coordinate.
