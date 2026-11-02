@@ -82,13 +82,18 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
             // Chrome may truncate the address bar. The creation editor also exposes
             // a top model selector and image-generation controls; the home feed does not.
             val urlConfirmed = nodes.any { label(it).contains("/create/image", true) }
-            val editorConfirmed = nodes.any { inHeader(it) &&
-                Regex("(?i).*(GR-Illustrious|モデル|checkpoint|model).*").matches(label(it)) } &&
-                nodes.any { it.isVisibleToUser &&
-                    Regex("(?i).*(Img2Img|再編集|再生成|ライブラリ).*").matches(label(it)) }
+            val topModel = nodes.any { inHeader(it) &&
+                Regex("(?i).*(GR-Illustrious|モデル|checkpoint|civedgemix|cityedgemix|model).*").matches(label(it)) }
+            val editorControls = nodes.any { it.isVisibleToUser &&
+                Regex("(?i).*(Img2Img|再編集|再生成|ライブラリ|アシスタント).*").matches(label(it)) }
+            // In SeaArt's mobile editor, the model selector is in the top bar,
+            // while creation controls appear below. Chrome's URL node may be
+            // truncated, so require both independent visual landmarks.
+            val editorConfirmed = topModel && editorControls
             val onCreatePage = urlConfirmed || editorConfirmed
-            if (editorConfirmed && !urlConfirmed) trace("editor identified by model header and editor controls (URL not exposed)")
-
+            if (state in setOf("awaiting_create", "awaiting_create_navigation")) {
+                trace("page check url=$urlConfirmed topModel=$topModel editorControls=$editorControls nodes=${nodes.size}")
+            }
             fun tapCreateTab(): Boolean {
                 val height = service.resources.displayMetrics.heightPixels
                 val width = service.resources.displayMetrics.widthPixels
@@ -131,10 +136,19 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                 trace("fallback gesture dispatched=$dispatched (navigation unverified)")
                 return dispatched
             }
+            // Recovery: if the editor has loaded while the previous tab-click
+            // state is still pending, jump directly to model selection.
+            if (onCreatePage && state in setOf("awaiting_create", "awaiting_create_navigation")) {
+                trace("editor recovery: $state -> awaiting_model_menu")
+                settings.put("seaartLastError", "")
+                next("awaiting_model_menu")
+                return
+            }
             when (state) {
                 "awaiting_create" -> {
                     if (onCreatePage) {
-                        trace("confirmed /create/image")
+                        trace("creation editor confirmed; proceeding to model selection")
+                        settings.put("seaartLastError", "")
                         next("awaiting_model_menu")
                     } else if (tapCreateTab()) {
                         settings.put("seaartCreateTapAt", System.currentTimeMillis().toString())
@@ -145,8 +159,9 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                 }
                 "awaiting_create_navigation" -> {
                     if (onCreatePage) {
+                        trace("creation editor confirmed after bottom tab; proceeding to model selection")
                         settings.put("seaartLastError", "")
-                        next("awaiting_editor")
+                        next("awaiting_model_menu")
                     } else {
                         val tapAt = settings.get("seaartCreateTapAt").toLongOrNull() ?: 0L
                         if (System.currentTimeMillis() - tapAt > 6000L) {
