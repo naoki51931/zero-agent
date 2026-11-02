@@ -91,6 +91,31 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
             // truncated, so require both independent visual landmarks.
             val editorConfirmed = topModel && editorControls
             val onCreatePage = urlConfirmed || editorConfirmed
+            val onModelDetailPage = nodes.any { label(it).contains("/models/detail/", true) }
+            if (onModelDetailPage && state in setOf("awaiting_model_menu", "awaiting_model_choice",
+                    "awaiting_lora_menu", "awaiting_lora_choice", "awaiting_editor")) {
+                trace("model detail page detected; returning to creation editor without selecting model")
+                settings.put("seaartModelConfirmed", "")
+                settings.put("seaartLastError", "モデル詳細ページへ移動しました。創作画面に戻ってモデルを確認します")
+                val back = nodes.firstOrNull { node ->
+                    val bounds = Rect()
+                    node.getBoundsInScreen(bounds)
+                    node.isVisibleToUser && bounds.centerY() < service.resources.displayMetrics.heightPixels * 0.18f &&
+                        Regex("(?i).*(戻る|back).*").matches(label(node))
+                }
+                if (!click(back)) service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+                settings.put("seaartPendingState", "awaiting_editor_return")
+                return
+            }
+            if (state == "awaiting_editor_return") {
+                if (onCreatePage) {
+                    trace("returned to editor; use existing model header, avoid model detail link")
+                    settings.put("seaartModelConfirmed", settings.get("seaartPendingSince"))
+                    settings.put("seaartLastError", "")
+                    settings.put("seaartPendingState", "awaiting_lora_menu")
+                } else trace("waiting for return to editor")
+                return
+            }
             if (state in setOf("awaiting_create", "awaiting_create_navigation")) {
                 trace("page check url=$urlConfirmed topModel=$topModel editorControls=$editorControls nodes=${nodes.size}")
             }
@@ -197,24 +222,17 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                 }
                 "awaiting_model_choice" -> {
                     val model = settings.get("seaartPendingModel").ifBlank { "GR-Illustrious 3in1" }
-                    val option = nodes.firstOrNull { it.isVisibleToUser &&
-                        label(it).contains(model, true) && !inHeader(it) }
-                    if (click(option)) {
-                        trace("clicked model option: ${model.take(60)}")
-                        settings.put("seaartModelConfirmed", settings.get("seaartPendingSince"))
-                        next("awaiting_model_menu")
-                    } else {
-                        val search = nodes.firstOrNull { it.isEditable && it.isVisibleToUser &&
-                            Regex("(?i).*(search model|モデルを検索).*").matches(label(it)) }
-                        if (search != null) {
-                            type(search, model)
-                            trace("searched model: ${model.take(60)}")
-                        } else {
-                            trace("model option/search not found; visible matches=" +
-                                nodes.filter { it.isVisibleToUser && label(it).contains(model, true) }
-                                    .take(4).joinToString { label(it).take(70) })
-                        }
-                    }
+                    // A text match may be a navigation link to /models/detail, not
+                    // a selector. Never click arbitrary model-name cards.
+                    val choices = nodes.filter { it.isVisibleToUser && label(it).contains(model, true) && !inHeader(it) }
+                    trace("model menu candidates=${choices.size}; refusing ambiguous model-name link")
+                    settings.put("seaartLastError", "モデル候補が詳細ページへのリンクの可能性があります。選択操作を保留")
+                    next("awaiting_model_choice_review")
+                }
+                "awaiting_model_choice_review" -> {
+                    // Wait for a user-visible correction rather than repeatedly
+                    // opening the wrong model page or spending generation credits.
+                    return
                 }
                 "awaiting_lora_menu" -> {
                     val lora = settings.get("seaartPendingLora")
