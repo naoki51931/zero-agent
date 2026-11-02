@@ -204,7 +204,17 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
             // click model result cards, which open /models/detail instead.
             val requestedModel = settings.get("seaartPendingModel").ifBlank { "GR-Illustrious 3in1" }
             val modelInEditorHeader = onCreatePage && nodes.any { node ->
-                inHeader(node) && label(node).contains(requestedModel, ignoreCase = true)
+                if (!inHeader(node)) false
+                else {
+                    val visible = label(node).lowercase().replace(Regex("[\\s_\\-]+"), "")
+                    val target = requestedModel.lowercase().replace(Regex("[\\s_\\-]+"), "")
+                    visible.contains(target) ||
+                        (target.contains("grillustrious3in1") &&
+                            visible.contains("grillustrious") && visible.contains("3in1"))
+                }
+            }
+            if (state == "awaiting_model_menu") {
+                trace("model checkpoint check onCreatePage=$onCreatePage headerMatch=$modelInEditorHeader target=${requestedModel.take(70)}")
             }
             if (modelInEditorHeader && state in setOf(
                     "awaiting_model_menu", "awaiting_model_choice",
@@ -256,6 +266,12 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                 }
                 "awaiting_model_menu" -> {
                     if (!onCreatePage) { trace("model selection waiting for editor"); return }
+                    if (modelInEditorHeader && settings.get("seaartPendingLora").isBlank()) {
+                        trace("matching model already active; no selector click needed")
+                        settings.put("seaartModelConfirmed", settings.get("seaartPendingSince"))
+                        next("awaiting_editor")
+                        return
+                    }
                     val target = settings.get("seaartPendingModel").ifBlank { "GR-Illustrious 3in1" }
                     // The header text alone does not prove that this run explicitly
                     // selected the desired checkpoint. Open the selector once per run.
