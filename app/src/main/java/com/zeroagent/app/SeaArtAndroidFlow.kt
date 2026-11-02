@@ -57,10 +57,11 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
             }
             fun next(value: String) { settings.put("seaartPendingState", value) }
 
+            val onCreatePage = nodes.any { label(it).contains("/create/image", true) }
             when (state) {
                 "awaiting_create" -> {
                     // A distinct Create/創作 entry; don't confuse it with Generate.
-                    if (click(find("^(創作|Create|AI創作|AI Creation)$"))) next("awaiting_model_menu")
+                    if (onCreatePage || click(find("^(創作|Create|AI創作|AI Creation)$"))) next("awaiting_editor")
                 }
                 "awaiting_model_menu" -> {
                     // Only open an explicitly labelled model selector.
@@ -69,7 +70,7 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                 "awaiting_model_choice" -> {
                     val model = settings.get("seaartPendingModel").ifBlank { "GR-Illustrious 3in1" }
                     if (click(find("^" + Regex.escape(model) + "$"))) {
-                        next(if (settings.get("seaartPendingLora").isBlank()) "awaiting_editor" else "awaiting_lora_menu")
+                        next(if (settings.get("seaartPendingLora").isBlank()) "awaiting_generate" else "awaiting_lora_menu")
                     } else {
                         // Search inside a clearly identified model-search field only.
                         val search = nodes.firstOrNull { it.isEditable && it.isVisibleToUser &&
@@ -82,9 +83,9 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                 }
                 "awaiting_lora_choice" -> {
                     val lora = settings.get("seaartPendingLora")
-                    if (lora.isBlank()) { next("awaiting_editor"); return }
+                    if (lora.isBlank()) { next("awaiting_generate"); return }
                     if (click(find("^" + Regex.escape(lora) + "$"))) {
-                        next("awaiting_editor")
+                        next("awaiting_generate")
                     } else {
                         val search = nodes.firstOrNull { it.isEditable && it.isVisibleToUser &&
                             Regex("(?i).*(search lora|loraを検索|LoRA検索).*").matches(label(it)) }
@@ -94,11 +95,20 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                 "awaiting_editor" -> {
                     val prompt = settings.get("seaartPendingPrompt")
                     if (prompt.length !in 20..3500) { next("invalid_prompt"); return }
-                    // Avoid typing into Chrome's address bar or an unrelated search field.
-                    val promptNode = nodes.firstOrNull { it.isEditable && it.isVisibleToUser &&
-                        !it.isPassword && Regex("(?i).*(prompt|プロンプト|入力して|describe your image).*")
-                            .matches(label(it)) }
-                    if (type(promptNode, prompt)) next("awaiting_generate")
+                    // The mobile SeaArt prompt field may expose only its existing text, not a label.
+                    val candidates = nodes.filter { node ->
+                        if (!node.isEditable || !node.isVisibleToUser || node.isPassword) return@filter false
+                        val bounds = android.graphics.Rect()
+                        node.getBoundsInScreen(bounds)
+                        bounds.top > 120 && bounds.height() > 35 &&
+                            !Regex("(?i).*(search|検索|url|アドレス|address|lora|model|モデル).*")
+                                .matches(label(node))
+                    }
+                    val promptNode = candidates.firstOrNull {
+                        Regex("(?i).*(prompt|プロンプト|入力して|describe your image).*")
+                            .matches(label(it))
+                    } ?: candidates.singleOrNull()
+                    if (type(promptNode, prompt)) next("awaiting_model_menu")
                 }
                 "awaiting_generate" -> {
                     val generate = find("^(生成|生成する|Generate|今すぐ生成|Start generating)$")
