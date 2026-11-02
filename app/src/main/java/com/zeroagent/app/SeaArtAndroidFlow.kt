@@ -401,6 +401,21 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                         val tapY = if (tapRect.height() >= 30 && tapRect.centerY() < screenHeight - 60)
                             tapRect.centerY().toFloat()
                         else (screenHeight * 0.90f).coerceAtMost(screenHeight - 100f)
+                        // Try the semantic clickable container first. A
+                        // gesture can be intercepted by Chrome or overlays.
+                        var clickable: AccessibilityNodeInfo? = composerBar
+                        repeat(5) {
+                            if (clickable?.isClickable == true) return@repeat
+                            clickable = clickable?.parent
+                        }
+                        if (clickable?.isClickable == true) {
+                            val clicked = clickable?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
+                            trace("compact composer parent ACTION_CLICK=$clicked")
+                            if (clicked) {
+                                settings.put("seaartComposerTapAt", System.currentTimeMillis().toString())
+                                return
+                            }
+                        }
                         val path = Path().apply { moveTo(tapX, tapY) }
                         val gesture = GestureDescription.Builder()
                             .addStroke(GestureDescription.StrokeDescription(path, 0, 350))
@@ -518,7 +533,7 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                     // Group adjacent text fragments rather than requiring one
                     // node to contain the entire credit label.
                     val fragments = nodes.filter(::inGenerateArea)
-                    val multiplier = Regex("""(?i).*?[x×Ｘ]\\s*\\d+.*""")
+                    val multiplier = Regex("""(?i).*?[x×Ｘ]\s*\d+.*""")
                     val lightning = Regex(""".*(?:⚡|クレジット|credits?).*""", RegexOption.IGNORE_CASE)
                     val paired = fragments.filter { multiplier.matches(label(it)) }
                         .flatMap { countNode ->
@@ -535,11 +550,27 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                                 combined
                             }
                         }.filter { it.width() < width * 0.65f }
-                    val generate = labeled.minByOrNull { node ->
+                    // A single credit label may be a narrow text fragment,
+                    // but the full clickable button is its nearest ancestor.
+                    val credited = labeled.map { node ->
+                        var candidate = node
+                        repeat(4) {
+                            val parent = candidate.parent
+                            if (parent != null && !candidate.isClickable) candidate = parent
+                        }
+                        candidate
+                    }.filter(::inGenerateArea)
+                    val generate = credited.minByOrNull { node ->
+                        val rect = generateBounds(node)
+                        rect.width() * rect.height()
+                    } ?: labeled.minByOrNull { node ->
                         val rect = generateBounds(node)
                         rect.width() * rect.height()
                     } ?: fallback.singleOrNull()
                     val pairedBounds = if (generate == null) paired.minByOrNull { it.width() * it.height() } else null
+                    trace("generate scan labeled=${labeled.size} fallback=${fallback.size} paired=${paired.size} samples=" +
+                        fragments.map(::label).filter { it.contains("⚡") || it.contains("32.") ||
+                            it.contains("x1", true) || it.contains("x 1", true) }.distinct().take(6).joinToString(" | ").take(200))
                     if (generate == null && pairedBounds == null) {
                         // The compact bar can hide the purple generate button.
                         // Open the prompt composer before trying again, rather
