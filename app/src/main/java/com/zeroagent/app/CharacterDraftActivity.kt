@@ -83,10 +83,11 @@ class CharacterDraftActivity : Activity() {
             LocalSettings(this).put("seaartActionLog", "")
             notify("操作ログをクリアしました")
         })
-        body.addView(label("SeaArt操作状態: " + LocalSettings(this).get("seaartPendingState", "未開始") + "。生成後はSeaArtのダウンロードを自動操作します。SeaArt名を含む画像を日時で照合して投稿待ちへ自動取り込みします。候補が複数の場合は手動選択してください。"))
-        body.addView(button("ダウンロードフォルダを選択（初回のみ）") {
+        body.addView(label("SeaArt操作状態: " + LocalSettings(this).get("seaartPendingState", "未開始") + "。生成後はSeaArtのダウンロードを自動操作します。SeaArt名を含む画像を日時で照合し、指定フォルダに投稿用コピーを作成して投稿待ちへ自動取り込みします。候補が複数の場合は手動選択してください。"))
+        body.addView(button("SeaArtダウンロード・投稿用コピー保存フォルダを選択") {
             startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
                     Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
             }, 102)
         })
@@ -201,9 +202,10 @@ class CharacterDraftActivity : Activity() {
         if (requestCode == 102 && resultCode == RESULT_OK) {
             val tree = data?.data ?: return
             try {
-                contentResolver.takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                contentResolver.takePersistableUriPermission(tree,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
                 LocalSettings(this).put("seaartDownloadTree", tree.toString())
-                notify("フォルダへのアクセスを保存しました")
+                notify("投稿用コピーの保存先フォルダを設定しました（読み書き許可）")
             } catch (e: Exception) { notify("フォルダ許可を保存できません: " + e.message) }
             return
         }
