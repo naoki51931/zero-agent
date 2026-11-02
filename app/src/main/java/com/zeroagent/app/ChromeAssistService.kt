@@ -771,7 +771,7 @@ class ChromeAssistService : AccessibilityService() {
                     } finally { seaartImportPolling = false }
                 }
             }
-            if (pending in setOf("awaiting_editor", "awaiting_generate", "awaiting_download") && !seaartFlowBusy) {
+            if (pending in setOf("awaiting_create", "awaiting_model_menu", "awaiting_model_choice", "awaiting_lora_menu", "awaiting_lora_choice", "awaiting_editor", "awaiting_generate", "awaiting_download") && !seaartFlowBusy) {
                 seaartFlowBusy = true
                 scope.launch {
                     try {

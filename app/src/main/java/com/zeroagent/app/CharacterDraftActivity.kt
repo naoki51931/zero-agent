@@ -126,15 +126,15 @@ class CharacterDraftActivity : Activity() {
                 store.updateGenerationSettings(id, modelInput.text.toString(), loraInput.text.toString())
                 notify("モデル・LoRA設定を保存しました")
             })
-            body.addView(button("AndroidでSeaArt生成を開始（Chrome自動操作）") {
+            body.addView(button("SeaArt創作・モデル・LoRA・生成を全自動で開始") {
                 val settings = LocalSettings(this)
                 settings.put("seaartPendingId", id)
                 settings.put("seaartPendingPrompt", row.optString("prompt"))
                 settings.put("seaartPendingModel", modelInput.text.toString().ifBlank { "GR-Illustrious 3in1" })
                 settings.put("seaartPendingLora", loraInput.text.toString())
-                settings.put("seaartPendingState", "awaiting_editor")
+                settings.put("seaartPendingState", "awaiting_create")
                 settings.put("seaartPendingSince", System.currentTimeMillis().toString())
-                notify("ChromeのSeaArtを開きます。ログイン済みであることを確認してください")
+                notify("SeaArtで創作→モデル→LoRA→生成を自動操作します。ログイン済みであることを確認してください")
                 try {
                     startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.seaart.ai/ja/")))
                 } catch (e: Exception) {
