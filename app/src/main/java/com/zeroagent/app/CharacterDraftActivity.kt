@@ -65,6 +65,7 @@ class CharacterDraftActivity : Activity() {
         body.removeAllViews()
         body.addView(label("SeaArt画像生成・投稿準備", 22f))
         body.addView(label("Xで抽出した未検証のいいね数からAIがオリジナルのアニメキャラ案を選びます。いいね数の予測は保証されません。"))
+        body.addView(label("直近の操作診断: " + LocalSettings(this).get("seaartLastError", "なし")))
         body.addView(label("SeaArt操作状態: " + LocalSettings(this).get("seaartPendingState", "未開始") + "。生成後はSeaArtのダウンロードを自動操作します。SeaArt名を含む画像を日時で照合して投稿待ちへ自動取り込みします。候補が複数の場合は手動選択してください。"))
         body.addView(button("ダウンロードフォルダを選択（初回のみ）") {
             startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
@@ -140,6 +141,7 @@ class CharacterDraftActivity : Activity() {
                 settings.put("seaartRepeatTotal", count.toString())
                 settings.put("seaartRepeatCompleted", "0")
                 settings.put("seaartImportedNames", "")
+                settings.put("seaartLastError", "")
                 settings.put("seaartPendingState", "awaiting_create")
                 settings.put("seaartPendingSince", System.currentTimeMillis().toString())
                 notify("SeaArtで創作→モデル→LoRA→生成を自動操作します。ログイン済みであることを確認してください")
