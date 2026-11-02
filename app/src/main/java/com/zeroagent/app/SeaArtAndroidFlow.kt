@@ -326,61 +326,71 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                 "awaiting_editor" -> {
                     val prompt = settings.get("seaartPendingPrompt")
                     if (prompt.length !in 20..3500) { next("invalid_prompt"); return }
-                    val candidates = nodes.filter { node ->
-                        if (!node.isEditable || !node.isVisibleToUser || node.isPassword) return@filter false
-                        val bounds = Rect()
-                        node.getBoundsInScreen(bounds)
-                        bounds.top > 120 && bounds.height() > 35 &&
-                            !Regex("(?i).*(search|検索|url|アドレス|address|lora|model|モデル).*")
-                                .matches(label(node))
-                    }
-                    // SeaArt's mobile composer is a bottom sheet. Two editable
-                    // nodes are commonly exposed; choose the large visible
-                    // composer field in the lower half, never the search box.
-                    val lowerFields = candidates.filter { node ->
+                    fun isPromptField(node: AccessibilityNodeInfo): Boolean {
+                        if (!node.isVisibleToUser || node.isPassword) return false
                         val rect = Rect()
                         node.getBoundsInScreen(rect)
-                        rect.centerY() > screenHeight * 0.55f &&
-                            rect.width() > service.resources.displayMetrics.widthPixels * 0.40f
+                        if (rect.top < 120 || rect.height() < 30 || rect.width() < 120) return false
+                        val description = label(node)
+                        if (Regex("(?i).*(search|検索|url|アドレス|address|lora|model|モデル).*").matches(description)) return false
+                        return node.isEditable
                     }
-                    val promptNode = lowerFields.maxByOrNull { node ->
+                    val candidates = nodes.filter(::isPromptField)
+                    val promptNode = candidates.maxByOrNull { node ->
                         val rect = Rect()
                         node.getBoundsInScreen(rect)
-                        val content = node.text?.toString().orEmpty()
-                        (if (content.isNotBlank()) 100000 else 0) +
-                            rect.width() + rect.height() +
+                        val value = node.text?.toString().orEmpty()
+                        (if (rect.centerY() > screenHeight * 0.52f) 100000 else 0) +
                             (if (label(node).contains("prompt", true) ||
-                                label(node).contains("プロンプト")) 100000 else 0)
-                    } ?: candidates.firstOrNull {
-                        Regex("(?i).*(prompt|プロンプト|入力して|describe your image).*")
-                            .matches(label(it))
-                    } ?: candidates.singleOrNull()
-                    trace("prompt candidate chosen=" + (promptNode?.let { node ->
-                        val rect = Rect()
-                        node.getBoundsInScreen(rect)
-                        "text=" + label(node).take(70) + " bounds=" + rect.flattenToString()
-                    } ?: "none") + " lowerFields=" + lowerFields.size)
-                    if (promptNode?.text?.toString() == prompt) {
-                        trace("prompt verified in editor")
+                                label(node).contains("プロンプト") ||
+                                label(node).contains("何を創造")) 100000 else 0) +
+                            (if (value.isNotBlank()) 10000 else 0) + rect.width()
+                    }
+                    fun matchesPrompt(value: String): Boolean {
+                        val normalized = value.trim()
+                        return normalized == prompt.trim() ||
+                            (prompt.length >= 80 && normalized.length >= 60 &&
+                                normalized.startsWith(prompt.take(60)) &&
+                                (normalized.length >= prompt.length || normalized.endsWith("…")))
+                    }
+                    if (promptNode == null) {
+                        trace("prompt field missing; visible editable candidates=0")
+                        return
+                    }
+                    val current = promptNode.text?.toString().orEmpty()
+                    if (matchesPrompt(current)) {
+                        trace("prompt already visible in composer; proceed")
                         next("awaiting_generate")
-                    } else if (type(promptNode, prompt)) {
-                        trace("prompt input sent; awaiting confirmation")
-                        next("awaiting_prompt_confirmation")
-                    } else trace("prompt editable field not found candidates=${candidates.size} details=" +
-                        candidates.take(5).joinToString { node ->
-                            val rect = Rect()
-                            node.getBoundsInScreen(rect)
-                            "text=${label(node).take(60)} bounds=${rect.flattenToString()}"
-                        })
+                        return
+                    }
+                    // Contenteditable fields in Chrome sometimes reject SET_TEXT
+                    // until focused. Never type into the address/search bar.
+                    promptNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+                    val entered = type(promptNode, prompt)
+                    trace("prompt SET_TEXT=$entered currentLength=${current.length} targetLength=${prompt.length}")
+                    if (entered) next("awaiting_prompt_confirmation")
+                    else {
+                        click(promptNode)
+                        trace("prompt field focused for retry")
+                    }
                 }
                 "awaiting_prompt_confirmation" -> {
                     val prompt = settings.get("seaartPendingPrompt")
-                    if (nodes.any { it.isEditable && it.isVisibleToUser &&
-                            it.text?.toString() == prompt }) {
-                        trace("prompt confirmed")
+                    val verified = nodes.any { node ->
+                        if (!node.isEditable || !node.isVisibleToUser || node.isPassword) false
+                        else {
+                            val value = node.text?.toString()?.trim().orEmpty()
+                            value == prompt.trim() ||
+                                (prompt.length >= 80 && value.length >= 60 &&
+                                    value.startsWith(prompt.take(60)) &&
+                                    (value.length >= prompt.length || value.endsWith("…")))
+                        }
+                    }
+                    if (verified) {
+                        trace("prompt confirmed in composer")
                         next("awaiting_generate")
                     } else {
-                        trace("prompt not confirmed; retry editor")
+                        trace("prompt not confirmed in accessibility tree; retry editor without generating")
                         next("awaiting_editor")
                     }
                 }
