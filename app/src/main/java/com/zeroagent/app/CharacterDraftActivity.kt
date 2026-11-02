@@ -159,7 +159,7 @@ class CharacterDraftActivity : Activity() {
                 settings.put("seaartRepeatCompleted", "0")
                 settings.put("seaartImportedNames", "")
                 settings.put("seaartLastError", "")
-                settings.put("seaartActionLog", "")
+                settings.put("seaartActionLog", "SeaArt自動操作開始: 下部の創作タブを優先\nChrome起動を要求しました。画面イベント待機中\n")
                 settings.put("seaartPendingState", "awaiting_create")
                 settings.put("seaartPendingSince", System.currentTimeMillis().toString())
                 notify("SeaArtで創作→モデル→LoRA→生成を自動操作します。ログイン済みであることを確認してください")
@@ -167,6 +167,7 @@ class CharacterDraftActivity : Activity() {
                     startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.seaart.ai/ja/")))
                 } catch (e: Exception) {
                     settings.put("seaartPendingState", "")
+                    settings.put("seaartActionLog", settings.get("seaartActionLog") + "Chrome起動失敗: " + e.javaClass.simpleName + "\\n")
                     notify("SeaArtを開けません: " + e.message)
                 }
             })
