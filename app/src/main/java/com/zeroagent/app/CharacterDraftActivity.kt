@@ -14,6 +14,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import android.widget.EditText
+import android.provider.DocumentsContract
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -41,6 +42,16 @@ class CharacterDraftActivity : Activity() {
         setContentView(scroll)
         render()
     }
+    override fun onResume() {
+        super.onResume()
+        scope.launch {
+            val result = SeaArtDownloadImporter.scan(this@CharacterDraftActivity)
+            if (result.status == "imported") {
+                notify("SeaArt画像を投稿待ちへ自動登録: " + result.detail)
+                render()
+            }
+        }
+    }
     override fun onDestroy() { scope.cancel(); super.onDestroy() }
     private fun label(value: String, size: Float = 15f) = TextView(this).apply {
         text = value; textSize = size; setTextColor(Color.BLACK); setPadding(8, 12, 8, 12)
@@ -53,7 +64,26 @@ class CharacterDraftActivity : Activity() {
         body.removeAllViews()
         body.addView(label("SeaArt画像生成・投稿準備", 22f))
         body.addView(label("Xで抽出した未検証のいいね数からAIがオリジナルのアニメキャラ案を選びます。いいね数の予測は保証されません。"))
-        body.addView(label("SeaArt操作状態: " + LocalSettings(this).get("seaartPendingState", "未開始") + "。生成後はSeaArtのダウンロードを自動操作します。Chromeのダウンロード完了後、下のボタンから画像を選んで投稿待ちへ取り込んでください。"))
+        body.addView(label("SeaArt操作状態: " + LocalSettings(this).get("seaartPendingState", "未開始") + "。生成後はSeaArtのダウンロードを自動操作します。SeaArt名を含む画像を日時で照合して投稿待ちへ自動取り込みします。候補が複数の場合は手動選択してください。"))
+        body.addView(button("ダウンロードフォルダを選択（初回のみ）") {
+            startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+            }, 102)
+        })
+        body.addView(button("SeaArtダウンロードを照合して自動取り込み") {
+            scope.launch {
+                val result = SeaArtDownloadImporter.scan(this@CharacterDraftActivity)
+                notify(when (result.status) {
+                    "imported" -> "投稿待ちに登録: " + result.detail
+                    "permission_needed" -> "ダウンロードフォルダの選択が必要です"
+                    "ambiguous" -> "候補が複数あります。手動で画像を選択してください"
+                    "not_found" -> "条件に合うSeaArt画像がまだありません"
+                    else -> "照合結果: " + result.status
+                })
+                render()
+            }
+        })
         body.addView(button("AIにキャラを選ばせて生成案を作成（OpenRouter料金あり）") {
             val settings = LocalSettings(this)
             if (settings.get("apiKey").isBlank() || settings.get("model").isBlank()) {
@@ -139,6 +169,15 @@ class CharacterDraftActivity : Activity() {
     @Deprecated("Legacy document picker callback")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 102 && resultCode == RESULT_OK) {
+            val tree = data?.data ?: return
+            try {
+                contentResolver.takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                LocalSettings(this).put("seaartDownloadTree", tree.toString())
+                notify("フォルダへのアクセスを保存しました")
+            } catch (e: Exception) { notify("フォルダ許可を保存できません: " + e.message) }
+            return
+        }
         if (requestCode != 101 || resultCode != RESULT_OK) return
         val id = pendingId ?: return
         pendingId = null
