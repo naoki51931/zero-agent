@@ -42,11 +42,15 @@ class CharacterDraftStore(private val context: Context) {
         for (i in 0 until rows.length()) {
             val row = rows.optJSONObject(i) ?: continue
             if (row.optString("id") != id) continue
-            val dest = File(dir, "draft_$id.png")
+            val sequence = row.optJSONArray("image_paths")?.length() ?: 0
+            val dest = File(dir, "draft_${id}_${sequence + 1}.img")
             context.contentResolver.openInputStream(uri)?.use { input ->
                 dest.outputStream().use { output -> input.copyTo(output) }
             } ?: return false
             require(dest.length() in 8L..20_000_000L) { "Invalid image size" }
+            val images = row.optJSONArray("image_paths") ?: org.json.JSONArray()
+            images.put(dest.absolutePath)
+            row.put("image_paths", images)
             row.put("image_path", dest.absolutePath).put("status", "ready_for_post_review")
             manifest.writeText(rows.toString(2))
             return true
