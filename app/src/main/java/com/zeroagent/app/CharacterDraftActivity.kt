@@ -193,6 +193,7 @@ class CharacterDraftActivity : Activity() {
                 settings.put("seaartPendingLora", loraInput.text.toString())
                 settings.put("seaartRepeatTotal", count.toString())
                 settings.put("seaartRepeatCompleted", "0")
+                settings.put("seaartImagesInRound", "0")
                 settings.put("seaartImportedNames", "")
                 settings.put("seaartPostCopyUris", "")
                 settings.put("seaartXHandoffReady", "")
