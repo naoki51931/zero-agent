@@ -777,20 +777,25 @@ class ChromeAssistService : AccessibilityService() {
                 }
             }
             if (pending in setOf("awaiting_create", "awaiting_create_navigation", "awaiting_model_menu", "awaiting_model_choice",
-                    "awaiting_lora_menu", "awaiting_lora_choice", "awaiting_editor",
+                    "awaiting_lora_menu", "awaiting_lora_choice", "awaiting_editor", "awaiting_prompt_confirmation",
                     "awaiting_generate", "awaiting_download", "download_requested")) {
                 minimizeForResearch?.invoke()
                 if (!floatingDismissed) panel?.visibility = android.view.View.VISIBLE
                 consentPanel?.visibility = android.view.View.GONE
             }
-            if (pending in setOf("awaiting_create", "awaiting_create_navigation") && !seaartNavigationPolling) {
+            if (pending in setOf("awaiting_create", "awaiting_create_navigation", "awaiting_model_menu",
+                    "awaiting_model_choice", "awaiting_lora_menu", "awaiting_lora_choice",
+                    "awaiting_editor", "awaiting_prompt_confirmation", "awaiting_generate") && !seaartNavigationPolling) {
                 seaartNavigationPolling = true
                 scope.launch {
                     try {
-                        repeat(18) {
+                        repeat(60) {
                             delay(1500)
                             val current = LocalSettings(this@ChromeAssistService).get("seaartPendingState")
-                            if (current !in setOf("awaiting_create", "awaiting_create_navigation")) return@launch
+                            if (current !in setOf("awaiting_create", "awaiting_create_navigation",
+                                    "awaiting_model_menu", "awaiting_model_choice", "awaiting_lora_menu",
+                                    "awaiting_lora_choice", "awaiting_editor", "awaiting_prompt_confirmation",
+                                    "awaiting_generate")) return@launch
                             // A timer can fire after the user switches to ChatGPT or
                             // Zero Agent. Never advance SeaArt on another app's window.
                             val activeRoot = rootInActiveWindow
@@ -821,7 +826,7 @@ class ChromeAssistService : AccessibilityService() {
                     } finally { seaartImportPolling = false }
                 }
             }
-            if (pending in setOf("awaiting_create", "awaiting_create_navigation", "awaiting_model_menu", "awaiting_model_choice", "awaiting_lora_menu", "awaiting_lora_choice", "awaiting_editor", "awaiting_generate", "awaiting_download") && !seaartFlowBusy) {
+            if (pending in setOf("awaiting_create", "awaiting_create_navigation", "awaiting_model_menu", "awaiting_model_choice", "awaiting_lora_menu", "awaiting_lora_choice", "awaiting_editor", "awaiting_prompt_confirmation", "awaiting_generate", "awaiting_download") && !seaartFlowBusy) {
                 seaartFlowBusy = true
                 scope.launch {
                     try {
@@ -838,7 +843,7 @@ class ChromeAssistService : AccessibilityService() {
             browserTransitionToken++
             val seaartActive = LocalSettings(this).get("seaartPendingState") in setOf(
                 "awaiting_create", "awaiting_create_navigation", "awaiting_model_menu", "awaiting_model_choice",
-                "awaiting_lora_menu", "awaiting_lora_choice", "awaiting_editor",
+                "awaiting_lora_menu", "awaiting_lora_choice", "awaiting_editor", "awaiting_prompt_confirmation",
                 "awaiting_generate", "awaiting_download", "download_requested")
             if (seaartActive) minimizeForResearch?.invoke()
             panel?.visibility = android.view.View.VISIBLE
