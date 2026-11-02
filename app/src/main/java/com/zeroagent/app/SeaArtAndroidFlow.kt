@@ -305,10 +305,32 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                             !Regex("(?i).*(search|検索|url|アドレス|address|lora|model|モデル).*")
                                 .matches(label(node))
                     }
-                    val promptNode = candidates.firstOrNull {
+                    // SeaArt's mobile composer is a bottom sheet. Two editable
+                    // nodes are commonly exposed; choose the large visible
+                    // composer field in the lower half, never the search box.
+                    val lowerFields = candidates.filter { node ->
+                        val rect = Rect()
+                        node.getBoundsInScreen(rect)
+                        rect.centerY() > screenHeight * 0.55f &&
+                            rect.width() > service.resources.displayMetrics.widthPixels * 0.40f
+                    }
+                    val promptNode = lowerFields.maxByOrNull { node ->
+                        val rect = Rect()
+                        node.getBoundsInScreen(rect)
+                        val content = node.text?.toString().orEmpty()
+                        (if (content.isNotBlank()) 100000 else 0) +
+                            rect.width() + rect.height() +
+                            (if (label(node).contains("prompt", true) ||
+                                label(node).contains("プロンプト")) 100000 else 0)
+                    } ?: candidates.firstOrNull {
                         Regex("(?i).*(prompt|プロンプト|入力して|describe your image).*")
                             .matches(label(it))
                     } ?: candidates.singleOrNull()
+                    trace("prompt candidate chosen=" + (promptNode?.let { node ->
+                        val rect = Rect()
+                        node.getBoundsInScreen(rect)
+                        "text=" + label(node).take(70) + " bounds=" + rect.flattenToString()
+                    } ?: "none") + " lowerFields=" + lowerFields.size)
                     if (promptNode?.text?.toString() == prompt) {
                         trace("prompt verified in editor")
                         next("awaiting_generate")
