@@ -16,6 +16,13 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
     private fun label(node: AccessibilityNodeInfo): String =
         listOfNotNull(node.text?.toString(), node.contentDescription?.toString()).joinToString(" ").trim()
 
+    private fun trace(message: String) {
+        val time = java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.JAPAN)
+            .format(java.util.Date())
+        val old = settings.get("seaartActionLog")
+        settings.put("seaartActionLog", (old + time + " " + message + "\n").takeLast(12000))
+    }
+
     suspend fun advance() {
         val state = settings.get("seaartPendingState")
         if (state.isBlank()) return
@@ -23,9 +30,9 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
         if (since <= 0 || System.currentTimeMillis() - since > 15 * 60_000L) {
             settings.put("seaartPendingState", ""); return
         }
-        val root = service.rootInActiveWindow ?: return
+        val root = service.rootInActiveWindow ?: run { trace("rootInActiveWindow=null state=$state"); return }
         try {
-            if (root.packageName?.toString() != "com.android.chrome") return
+            if (root.packageName?.toString() != "com.android.chrome") { trace("not Chrome: ${root.packageName} state=$state"); return }
             val nodes = mutableListOf<AccessibilityNodeInfo>()
             fun walk(node: AccessibilityNodeInfo, depth: Int) {
                 if (depth > 24 || nodes.size >= 300) return
@@ -33,7 +40,7 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                 for (i in 0 until node.childCount) node.getChild(i)?.let { walk(it, depth + 1) }
             }
             walk(root, 0)
-            if (nodes.none { label(it).contains("SeaArt", true) || label(it).contains("seaart.ai", true) }) return
+            if (nodes.none { label(it).contains("SeaArt", true) || label(it).contains("seaart.ai", true) }) { trace("SeaArt marker missing state=$state nodes=${nodes.size}"); return }
 
             fun find(pattern: String): AccessibilityNodeInfo? {
                 val regex = Regex(pattern, RegexOption.IGNORE_CASE)
@@ -63,7 +70,7 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                     !label(it).contains("Search or type web address", true) &&
                     (it.text?.length ?: 0) < 3500
             }
-            fun next(value: String) { settings.put("seaartPendingState", value) }
+            fun next(value: String) { trace("state $state -> $value"); settings.put("seaartPendingState", value) }
 
             val onCreatePage = nodes.any { label(it).contains("/create/image", true) }
             fun tapCreateTab(): Boolean {
@@ -79,25 +86,31 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                         rect.centerX() !in 0..width || rect.centerY() !in 0..height) null
                     else node to rect
                 }.sortedByDescending { it.second.centerY() }
+                trace("bottom Create candidates=${tabs.size} nodes=${nodes.size} state=$state")
                 val chosen = tabs.firstOrNull()
                 if (chosen == null) {
                     nodes.lastOrNull { it.isScrollable && it.isVisibleToUser }
                         ?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
+                    trace("bottom Create not found; attempted scroll backward")
                     settings.put("seaartLastError", "画面下の創作タブを探索中")
                     return false
                 }
-                if (click(chosen.first)) return true
+                trace("bottom Create bounds=${chosen.second.flattenToString()} label=${label(chosen.first).take(80)} clickable=${chosen.first.isClickable}")
+                if (click(chosen.first)) { trace("ACTION_CLICK returned true (navigation unverified)"); return true }
                 // Some Chrome web navigation elements expose no ACTION_CLICK. Use a
                 // bounded gesture at the actual accessibility node, not a hardcoded coordinate.
                 val rect = chosen.second
                 val path = Path().apply { moveTo(rect.centerX().toFloat(), rect.centerY().toFloat()) }
                 val gesture = GestureDescription.Builder()
                     .addStroke(GestureDescription.StrokeDescription(path, 0, 90)).build()
-                return service.dispatchGesture(gesture, null, null)
+                val dispatched = service.dispatchGesture(gesture, null, null)
+                trace("fallback gesture dispatched=$dispatched (navigation unverified)")
+                return dispatched
             }
             when (state) {
                 "awaiting_create" -> {
                     if (onCreatePage) {
+                        trace("confirmed /create/image")
                         next("awaiting_editor")
                     } else if (tapCreateTab()) {
                         settings.put("seaartCreateTapAt", System.currentTimeMillis().toString())
@@ -113,6 +126,7 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                     } else {
                         val tapAt = settings.get("seaartCreateTapAt").toLongOrNull() ?: 0L
                         if (System.currentTimeMillis() - tapAt > 6000L) {
+                            trace("navigation timeout after bottom Create tap")
                             settings.put("seaartLastError", "創作クリック後も画面遷移を確認できません")
                             next("awaiting_create")
                         }
