@@ -414,7 +414,7 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                     // Credit cost varies with model, plan and settings.
                     // Prefer a visible xN + lightning/credit label without
                     // depending on any fixed number or decimal value.
-                    val creditPattern = Regex("(?is).*(?:[x×Ｘ]\\s*\\d+.*(?:⚡|クレジット|credits?|\\d+[.,]\\d+)|(?:⚡|クレジット|credits?)\\s*\\d+.*[x×Ｘ]\\s*\\d+).*")
+                    val creditPattern = Regex("""(?is).*(?:[x×Ｘ]\\s*\\d+.*(?:⚡|クレジット|credits?|\\d+[.,]\\d+)|(?:⚡|クレジット|credits?)\\s*\\d+.*[x×Ｘ]\\s*\\d+).*""")
                     val namedPattern = Regex("(?i).*(生成する|今すぐ生成|generate|start generating).*")
                     val labeled = nodes.filter(::inGenerateArea).filter { node ->
                         val value = label(node)
