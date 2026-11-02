@@ -24,11 +24,20 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
     }
 
     suspend fun advance() {
-        val state = settings.get("seaartPendingState")
+        var state = settings.get("seaartPendingState")
         if (state.isBlank()) return
         val since = settings.get("seaartPendingSince").toLongOrNull() ?: 0L
         if (since <= 0 || System.currentTimeMillis() - since > 15 * 60_000L) {
             settings.put("seaartPendingState", ""); return
+        }
+        // No LoRA requested: this is a configuration decision, not a UI
+        // interaction. Skip before accessing Chrome's accessibility root,
+        // which can be null while the IME/keyboard is active.
+        if (state == "awaiting_lora_menu" && settings.get("seaartPendingLora").isBlank()) {
+            trace("LoRA unspecified; skip selector immediately and proceed to prompt")
+            settings.put("seaartPendingState", "awaiting_editor")
+            state = "awaiting_editor"
+            // Continue in this pass if Chrome's editor is accessible.
         }
         val root = service.rootInActiveWindow ?: run { trace("rootInActiveWindow=null state=$state"); return }
         try {
@@ -204,7 +213,10 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                     "; skipping model menu")
                 settings.put("seaartModelConfirmed", settings.get("seaartPendingSince"))
                 settings.put("seaartLastError", "")
-                next("awaiting_lora_menu")
+                if (settings.get("seaartPendingLora").isBlank()) {
+                    trace("LoRA unspecified after model recognition; proceeding directly to prompt")
+                    next("awaiting_editor")
+                } else next("awaiting_lora_menu")
                 return
             }
             // Recovery: if the editor has loaded while the previous tab-click
