@@ -15,3 +15,16 @@
 - 画像はユーザーが選択して初めてアプリへ取り込まれる。
 - 次工程はユーザーによる投稿レビュー・承認を挟む設計にする。
 - 実機ビルドと操作検証が必要。
+
+## SeaArt Bridge (experimental)
+
+公式 SeaArt CLI: https://github.com/seaartpublic/cli
+
+1. 信頼できるLinux/macOS/Windowsホストに公式CLIをインストールし、seaart login で認証する。
+2. seaart models list で画像モデルIDとバージョンIDを確認する。
+3. Python 3.10+で tools/seaart_bridge.py を起動する。環境変数 ZERO_AGENT_BRIDGE_TOKEN（24文字以上のランダム値）, SEAART_MODEL_ID, SEAART_MODEL_VER_ID を設定する。
+4. HTTPSリバースプロキシ経由でBridgeを公開し、アクセス制御を設定する。CLI認証済みホストをインターネットに無制限公開しないこと。
+5. Zero Agentの「SeaArt画像生成・投稿準備」画面にHTTPS Bridge URLとトークンを入力し保存。
+6. AI生成案の「SeaArtで自動画像生成・保存」を押すと1画像を生成して端末内の投稿待ちキューへ保存する。
+
+SeaArt CLIの出力形式はリリースで変化する可能性がある。BridgeはHTTPS画像URLを取得できなければエラーを返す。SeaArtのモデルによって費用がかかる場合がある。Bridge自体はSeaArtへのログイン処理をしない。投稿の自動化は未実装。
