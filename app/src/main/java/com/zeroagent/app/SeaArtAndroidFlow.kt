@@ -514,11 +514,34 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                         val unrelated = Regex("(?i).*(download|ダウンロード|戻る|back|share|共有|lora|モデル|設定|メニュー|閉じる|cancel|キャンセル).*").matches(value)
                         isControl && compact && !unrelated
                     }.distinctBy { generateBounds(it).flattenToString() }
+                    // SeaArt can expose "x 1" and "⚡ 32.4" as
+                    // separate accessibility nodes inside one purple button.
+                    // Group adjacent text fragments rather than requiring one
+                    // node to contain the entire credit label.
+                    val fragments = nodes.filter(::inGenerateArea)
+                    val multiplier = Regex("""(?i).*?[x×Ｘ]\\s*\\d+.*""")
+                    val lightning = Regex(""".*(?:⚡|クレジット|credits?).*""", RegexOption.IGNORE_CASE)
+                    val paired = fragments.filter { multiplier.matches(label(it)) }
+                        .flatMap { countNode ->
+                            val countRect = generateBounds(countNode)
+                            fragments.filter { priceNode ->
+                                val priceRect = generateBounds(priceNode)
+                                lightning.matches(label(priceNode)) &&
+                                    kotlin.math.abs(countRect.centerY() - priceRect.centerY()) <
+                                        kotlin.math.max(countRect.height(), priceRect.height()) * 2 + 32 &&
+                                    kotlin.math.abs(countRect.centerX() - priceRect.centerX()) < width * 0.5f
+                            }.map { priceNode ->
+                                val combined = Rect(generateBounds(countNode))
+                                combined.union(generateBounds(priceNode))
+                                combined
+                            }
+                        }.filter { it.width() < width * 0.65f }
                     val generate = labeled.minByOrNull { node ->
                         val rect = generateBounds(node)
                         rect.width() * rect.height()
                     } ?: fallback.singleOrNull()
-                    if (generate == null) {
+                    val pairedBounds = if (generate == null) paired.minByOrNull { it.width() * it.height() } else null
+                    if (generate == null && pairedBounds == null) {
                         // The compact bar can hide the purple generate button.
                         // Open the prompt composer before trying again, rather
                         // than mistaking the round up-arrow for Generate.
@@ -549,10 +572,26 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                         } else trace("generate not found: labeled=${labeled.size} fallback=${fallback.size} composer=${promptBar != null}")
                         return
                     }
+                    if (pairedBounds != null) {
+                        val x = pairedBounds.centerX().toFloat()
+                        val y = pairedBounds.centerY().toFloat()
+                        val path = Path().apply { moveTo(x, y) }
+                        val dispatched = service.dispatchGesture(
+                            GestureDescription.Builder()
+                                .addStroke(GestureDescription.StrokeDescription(path, 0, 120))
+                                .build(), null, null)
+                        trace("generate paired-credit tap=$dispatched at=$x,$y bounds=${pairedBounds.flattenToString()}")
+                        if (dispatched) {
+                            settings.put("seaartPendingSince", System.currentTimeMillis().toString())
+                            next("awaiting_download")
+                        }
+                        return
+                    }
+                    val selected = generate ?: return
                     trace("generate match=" + (if (labeled.isNotEmpty()) "variable-credit-label" else "lower-right-control-fallback"))
-                    val rect = generateBounds(generate)
-                    trace("purple generate candidate label=${label(generate).take(90)} bounds=${rect.flattenToString()} clickable=${generate.isClickable}")
-                    val clicked = click(generate)
+                    val rect = generateBounds(selected)
+                    trace("purple generate candidate label=${label(selected).take(90)} bounds=${rect.flattenToString()} clickable=${selected.isClickable}")
+                    val clicked = click(selected)
                     if (clicked) {
                         trace("purple generate ACTION_CLICK accepted; awaiting generation")
                         settings.put("seaartPendingSince", System.currentTimeMillis().toString())
