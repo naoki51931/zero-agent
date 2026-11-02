@@ -52,6 +52,7 @@ class ChromeAssistService : AccessibilityService() {
     private var seaartFlowBusy = false
     private var seaartImportPolling = false
     private var seaartNavigationPolling = false
+    private var floatingDismissed = false
     private var browserConsentShown = false
     private var demonstrating = false
     private var demoSteps = JSONArray()
@@ -681,6 +682,7 @@ class ChromeAssistService : AccessibilityService() {
         var compact = false
         fun setCompact(value: Boolean) {
             compact = value
+            closeFloat.visibility = android.view.View.VISIBLE
             controls.forEach { control ->
                 control.visibility = if (value) android.view.View.GONE else android.view.View.VISIBLE
             }
@@ -734,11 +736,18 @@ class ChromeAssistService : AccessibilityService() {
                 else -> false
             }
         }
+        val closeFloat = Button(this).apply {
+            text = "× 閉じる"
+            setOnClickListener {
+                floatingDismissed = true
+                layout.visibility = android.view.View.GONE
+            }
+        }
         val toggle = Button(this).apply {
             text = "小さくする"
             setOnClickListener { setCompact(true) }
         }
-        layout.addView(dragHandle); layout.addView(consent); layout.addView(status); layout.addView(objective); layout.addView(demoStart); layout.addView(demoStop); layout.addView(suggest); layout.addView(accept); layout.addView(auto); layout.addView(xResearch); layout.addView(testLog); layout.addView(xResults); layout.addView(stop); layout.addView(toggle)
+        layout.addView(dragHandle); layout.addView(consent); layout.addView(status); layout.addView(objective); layout.addView(demoStart); layout.addView(demoStop); layout.addView(suggest); layout.addView(accept); layout.addView(auto); layout.addView(xResearch); layout.addView(testLog); layout.addView(xResults); layout.addView(stop); layout.addView(toggle); layout.addView(closeFloat)
         manager.addView(layout, params)
         panel = layout
         setCompact(true)
@@ -763,7 +772,7 @@ class ChromeAssistService : AccessibilityService() {
                     "awaiting_lora_menu", "awaiting_lora_choice", "awaiting_editor",
                     "awaiting_generate", "awaiting_download", "download_requested")) {
                 minimizeForResearch?.invoke()
-                panel?.visibility = android.view.View.VISIBLE
+                if (!floatingDismissed) panel?.visibility = android.view.View.VISIBLE
                 consentPanel?.visibility = android.view.View.GONE
             }
             if (pending in setOf("awaiting_create", "awaiting_create_navigation") && !seaartNavigationPolling) {
