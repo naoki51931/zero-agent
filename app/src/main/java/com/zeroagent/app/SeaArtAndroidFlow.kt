@@ -203,18 +203,21 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
             // model label is authoritative for this opt-in workflow; do not
             // click model result cards, which open /models/detail instead.
             val requestedModel = settings.get("seaartPendingModel").ifBlank { "GR-Illustrious 3in1" }
-            val modelInEditorHeader = onCreatePage && nodes.any { node ->
-                if (!inHeader(node)) false
-                else {
-                    val visible = label(node).lowercase().replace(Regex("[\\s_\\-]+"), "")
-                    val target = requestedModel.lowercase().replace(Regex("[\\s_\\-]+"), "")
-                    visible.contains(target) ||
-                        (target.contains("grillustrious3in1") &&
-                            visible.contains("grillustrious") && visible.contains("3in1"))
-                }
-            }
+            // Chrome may expose the model title as separate accessibility
+            // text nodes (e.g. "GR-Illustrious" and "3in1").
+            val headerLabels = nodes.filter(::inHeader).map(::label)
+                .filter { it.isNotBlank() }
+            fun normalizeModel(value: String): String =
+                value.lowercase(java.util.Locale.ROOT)
+                    .replace(Regex("""[\\s_\\-]+"""), "")
+            val expected = normalizeModel(requestedModel)
+            val combinedHeader = normalizeModel(headerLabels.joinToString(" "))
+            val modelInEditorHeader = onCreatePage && (
+                headerLabels.any { normalizeModel(it).contains(expected) } ||
+                    combinedHeader.contains(expected)
+                )
             if (state == "awaiting_model_menu") {
-                trace("model checkpoint check onCreatePage=$onCreatePage headerMatch=$modelInEditorHeader target=${requestedModel.take(70)}")
+                trace("model checkpoint check onCreatePage=$onCreatePage headerMatch=$modelInEditorHeader target=${requestedModel.take(70)} header=${headerLabels.filter { it.contains("model", true) || it.contains("モデル") || it.contains("illustrious", true) || it.contains("3in1", true) }.take(8).joinToString(" | ").take(260)}")
             }
             if (modelInEditorHeader && state in setOf(
                     "awaiting_model_menu", "awaiting_model_choice",
