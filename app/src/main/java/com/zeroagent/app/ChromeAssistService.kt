@@ -778,7 +778,7 @@ class ChromeAssistService : AccessibilityService() {
             }
             if (pending in setOf("awaiting_create", "awaiting_create_navigation", "awaiting_model_menu", "awaiting_model_choice", "awaiting_model_choice_review", "awaiting_model_recovery", "awaiting_model_verification", "awaiting_editor_return",
                     "awaiting_lora_menu", "awaiting_lora_choice", "awaiting_editor", "awaiting_prompt_confirmation",
-                    "awaiting_generate", "awaiting_download", "download_requested")) {
+                    "awaiting_generate", "awaiting_download", "awaiting_download_detail", "awaiting_image_download_menu", "download_requested")) {
                 minimizeForResearch?.invoke()
                 if (!floatingDismissed) panel?.visibility = android.view.View.VISIBLE
                 consentPanel?.visibility = android.view.View.GONE
@@ -838,7 +838,7 @@ class ChromeAssistService : AccessibilityService() {
                     } finally { seaartImportPolling = false }
                 }
             }
-            if (pending in setOf("awaiting_create", "awaiting_create_navigation", "awaiting_model_menu", "awaiting_model_choice", "awaiting_model_choice_review", "awaiting_model_recovery", "awaiting_model_verification", "awaiting_editor_return", "awaiting_lora_menu", "awaiting_lora_choice", "awaiting_editor", "awaiting_prompt_confirmation", "awaiting_generate", "awaiting_download") && !seaartFlowBusy) {
+            if (pending in setOf("awaiting_create", "awaiting_create_navigation", "awaiting_model_menu", "awaiting_model_choice", "awaiting_model_choice_review", "awaiting_model_recovery", "awaiting_model_verification", "awaiting_editor_return", "awaiting_lora_menu", "awaiting_lora_choice", "awaiting_editor", "awaiting_prompt_confirmation", "awaiting_generate", "awaiting_download", "awaiting_download_detail", "awaiting_image_download_menu") && !seaartFlowBusy) {
                 seaartFlowBusy = true
                 scope.launch {
                     try {
@@ -856,7 +856,7 @@ class ChromeAssistService : AccessibilityService() {
             val seaartActive = LocalSettings(this).get("seaartPendingState") in setOf(
                 "awaiting_create", "awaiting_create_navigation", "awaiting_model_menu", "awaiting_model_choice", "awaiting_model_choice_review", "awaiting_model_recovery", "awaiting_model_verification", "awaiting_editor_return",
                 "awaiting_lora_menu", "awaiting_lora_choice", "awaiting_editor", "awaiting_prompt_confirmation",
-                "awaiting_generate", "awaiting_download", "download_requested")
+                "awaiting_generate", "awaiting_download", "awaiting_download_detail", "awaiting_image_download_menu", "download_requested")
             if (seaartActive) minimizeForResearch?.invoke()
             panel?.visibility = android.view.View.VISIBLE
             if (!chromeActive) {
