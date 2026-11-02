@@ -758,6 +758,12 @@ class ChromeAssistService : AccessibilityService() {
             event.eventType in setOf(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
                 AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)) {
             val pending = LocalSettings(this).get("seaartPendingState")
+            if (pending in setOf("awaiting_create", "awaiting_model_menu", "awaiting_model_choice",
+                    "awaiting_lora_menu", "awaiting_lora_choice", "awaiting_editor",
+                    "awaiting_generate", "awaiting_download", "download_requested")) {
+                panel?.visibility = android.view.View.GONE
+                consentPanel?.visibility = android.view.View.GONE
+            }
             if (pending == "download_requested" && !seaartImportPolling) {
                 seaartImportPolling = true
                 scope.launch {
@@ -786,10 +792,14 @@ class ChromeAssistService : AccessibilityService() {
         val isChrome = isSupportedScreen(event.packageName?.toString())
         if (isChrome) {
             browserTransitionToken++
-            panel?.visibility = android.view.View.VISIBLE
+            val seaartActive = LocalSettings(this).get("seaartPendingState") in setOf(
+                "awaiting_create", "awaiting_model_menu", "awaiting_model_choice",
+                "awaiting_lora_menu", "awaiting_lora_choice", "awaiting_editor",
+                "awaiting_generate", "awaiting_download", "download_requested")
+            panel?.visibility = if (seaartActive) android.view.View.GONE else android.view.View.VISIBLE
             if (!chromeActive) {
                 chromeActive = true
-                if (!browserConsentShown) {
+                if (!browserConsentShown && !seaartActive) {
                     consentPanel?.visibility = android.view.View.VISIBLE
                     browserConsentShown = true
                 }

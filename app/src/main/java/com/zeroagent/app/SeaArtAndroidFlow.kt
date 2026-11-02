@@ -40,8 +40,13 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
             fun click(node: AccessibilityNodeInfo?): Boolean {
                 if (node == null) return false
                 if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
-                val parent = node.parent
-                return parent?.isClickable == true && parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                var parent = node.parent
+                repeat(4) {
+                    if (parent == null) return false
+                    if (parent!!.isClickable && parent!!.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+                    parent = parent!!.parent
+                }
+                return false
             }
             fun type(node: AccessibilityNodeInfo?, value: String): Boolean {
                 if (node == null || !node.isEditable || !node.isVisibleToUser || node.isPassword) return false
@@ -61,7 +66,25 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
             when (state) {
                 "awaiting_create" -> {
                     // A distinct Create/創作 entry; don't confuse it with Generate.
-                    if (onCreatePage || click(find("^(創作|Create|AI創作|AI Creation)$"))) next("awaiting_editor")
+                    if (onCreatePage) {
+                        next("awaiting_editor")
+                    } else {
+                        // SeaArt's home page has a bottom navigation tab named 創作.
+                        val screenHeight = service.resources.displayMetrics.heightPixels
+                        val createTabs = nodes.filter {
+                            it.isVisibleToUser && Regex("^(創作|Create|AI創作|AI Creation)$", RegexOption.IGNORE_CASE).matches(label(it))
+                        }.sortedByDescending {
+                            val rect = android.graphics.Rect()
+                            it.getBoundsInScreen(rect)
+                            rect.centerY()
+                        }
+                        val bottomTab = createTabs.firstOrNull {
+                            val rect = android.graphics.Rect()
+                            it.getBoundsInScreen(rect)
+                            rect.centerY() > screenHeight / 2
+                        }
+                        if (click(bottomTab ?: createTabs.firstOrNull())) next("awaiting_editor")
+                    }
                 }
                 "awaiting_model_menu" -> {
                     // Only open an explicitly labelled model selector.
