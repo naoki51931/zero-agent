@@ -756,7 +756,7 @@ class ChromeAssistService : AccessibilityService() {
             event.eventType in setOf(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
                 AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)) {
             val pending = LocalSettings(this).get("seaartPendingState")
-            if (pending in setOf("awaiting_editor", "awaiting_generate") && !seaartFlowBusy) {
+            if (pending in setOf("awaiting_editor", "awaiting_generate", "awaiting_download") && !seaartFlowBusy) {
                 seaartFlowBusy = true
                 scope.launch {
                     try {

@@ -3,7 +3,6 @@ package com.zeroagent.app
 import android.accessibilityservice.AccessibilityService
 import android.os.Bundle
 import android.view.accessibility.AccessibilityNodeInfo
-import kotlinx.coroutines.delay
 
 /**
  * Conservative SeaArt browser workflow. Only acts on a user-started draft,
@@ -17,7 +16,7 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
         val state = settings.get("seaartPendingState")
         if (state.isBlank()) return
         val since = settings.get("seaartPendingSince").toLongOrNull() ?: 0L
-        if (System.currentTimeMillis() - since > 5 * 60_000L) {
+        if (System.currentTimeMillis() - since > 15 * 60_000L) {
             settings.put("seaartPendingState", ""); return
         }
         val root = service.rootInActiveWindow ?: return
@@ -47,6 +46,25 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                 }
                 return
             }
+            if (state == "awaiting_download") {
+                val loading = labels.any {
+                    Regex("(?i)(generating|generating image|生成中|作成中|処理中)").containsMatchIn(it)
+                }
+                if (loading) return
+                val download = nodes.firstOrNull { node ->
+                    val name = listOfNotNull(node.text?.toString(), node.contentDescription?.toString())
+                        .joinToString(" ").trim()
+                    node.isVisibleToUser && node.isClickable &&
+                        Regex("^(ダウンロード|画像をダウンロード|Download|Download image|Save image)$",
+                            RegexOption.IGNORE_CASE).matches(name)
+                } ?: return
+                // Avoid duplicate clicks if Chrome does not immediately navigate.
+                settings.put("seaartPendingState", "download_requested")
+                if (!download.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    settings.put("seaartPendingState", "download_click_failed")
+                }
+                return
+            }
             if (state == "awaiting_generate") {
                 val button = nodes.firstOrNull { node ->
                     val name = listOfNotNull(node.text?.toString(), node.contentDescription?.toString())
@@ -55,7 +73,7 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                         Regex("^(生成|生成する|Generate|Create|今すぐ生成)$", RegexOption.IGNORE_CASE).matches(name)
                 } ?: return
                 // Only a single generation request. A failure never retries automatically.
-                settings.put("seaartPendingState", "generation_requested")
+                settings.put("seaartPendingState", "awaiting_download")
                 if (!button.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
                     settings.put("seaartPendingState", "generation_click_failed")
                 }

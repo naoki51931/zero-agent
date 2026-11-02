@@ -53,7 +53,7 @@ class CharacterDraftActivity : Activity() {
         body.removeAllViews()
         body.addView(label("SeaArt画像生成・投稿準備", 22f))
         body.addView(label("Xで抽出した未検証のいいね数からAIがオリジナルのアニメキャラ案を選びます。いいね数の予測は保証されません。"))
-        body.addView(label("SeaArt操作状態: " + LocalSettings(this).get("seaartPendingState", "未開始") + "。生成後の画像保存は、現在は手動取り込みで確認してください。"))
+        body.addView(label("SeaArt操作状態: " + LocalSettings(this).get("seaartPendingState", "未開始") + "。生成後はSeaArtのダウンロードを自動操作します。Chromeのダウンロード完了後、下のボタンから画像を選んで投稿待ちへ取り込んでください。"))
         body.addView(button("AIにキャラを選ばせて生成案を作成（OpenRouter料金あり）") {
             val settings = LocalSettings(this)
             if (settings.get("apiKey").isBlank() || settings.get("model").isBlank()) {
@@ -79,10 +79,29 @@ class CharacterDraftActivity : Activity() {
             body.addView(label("生成プロンプト:\n" + row.optString("prompt")))
             body.addView(label("除外プロンプト:\n" + row.optString("negative_prompt")))
             body.addView(label("投稿用下書き:\n" + row.optString("caption")))
+            val modelInput = EditText(this).apply {
+                hint = "SeaArtモデル"
+                setSingleLine(true)
+                setText(row.optString("seaart_model", "GR-Illustrious 3in1"))
+            }
+            val loraInput = EditText(this).apply {
+                hint = "LoRA名（任意）"
+                setSingleLine(true)
+                setText(row.optString("seaart_lora"))
+            }
+            body.addView(label("AIのLoRA候補: " + row.optString("lora_hint", "未提案")))
+            body.addView(modelInput)
+            body.addView(loraInput)
+            body.addView(button("モデル・LoRAを保存") {
+                store.updateGenerationSettings(id, modelInput.text.toString(), loraInput.text.toString())
+                notify("モデル・LoRA設定を保存しました")
+            })
             body.addView(button("AndroidでSeaArt生成を開始（Chrome自動操作）") {
                 val settings = LocalSettings(this)
                 settings.put("seaartPendingId", id)
                 settings.put("seaartPendingPrompt", row.optString("prompt"))
+                settings.put("seaartPendingModel", modelInput.text.toString().ifBlank { "GR-Illustrious 3in1" })
+                settings.put("seaartPendingLora", loraInput.text.toString())
                 settings.put("seaartPendingState", "awaiting_editor")
                 settings.put("seaartPendingSince", System.currentTimeMillis().toString())
                 notify("ChromeのSeaArtを開きます。ログイン済みであることを確認してください")
@@ -105,7 +124,7 @@ class CharacterDraftActivity : Activity() {
                     startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.seaart.ai/ja/")))
                 } catch (e: Exception) { notify("SeaArtを開けません: " + e.message) }
             })
-            body.addView(button("SeaArtで作った画像を保存（投稿待ち）") {
+            body.addView(button("ダウンロード済みSeaArt画像を取り込む（投稿待ち）") {
                 pendingId = id
                 startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                     type = "image/*"

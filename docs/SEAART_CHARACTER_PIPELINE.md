@@ -13,3 +13,9 @@
 - 画像生成にはSeaArt側でクレジットが消費される場合がある。ユーザーが生成開始を押した場合だけ操作する。
 - Bridge/Python/サーバーは不要。以前の tools/seaart_bridge.py と SeaArtBridgeClient.kt は削除済み。
 - 保存済みの古いBridge設定値は利用しない。
+
+## モデルとLoRA（2026-11）
+- 新規AIキャラ案のSeaArt基本モデルは **GR-Illustrious 3in1**。
+- キャラごとに任意のLoRA名を入力・保存できる。AIはLoRAの系統を提案できるが、実在するSeaArt LoRAのIDや互換性を保証しない。
+- 現状、ChromeのSeaArt上でモデルとLoRAを選ぶ操作は未実装。生成前にユーザーがSeaArt上でGR-Illustrious 3in1と選んだLoRAを確認する必要がある。
+- 画像はスクリーンショットではなくSeaArtのダウンロードボタンで元ファイルをダウンロードする。Chromeのダウンロード完了とアプリ内の投稿待ち登録を自動連携する処理は未実装。現状はダウンロードしたファイルをファイル選択で取り込む。

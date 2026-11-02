@@ -25,6 +25,18 @@ class CharacterDraftStore(private val context: Context) {
         manifest.writeText(rows.toString(2))
         return id
     }
+    @Synchronized fun updateGenerationSettings(id: String, model: String, lora: String): Boolean {
+        val rows = all()
+        for (i in 0 until rows.length()) {
+            val row = rows.optJSONObject(i) ?: continue
+            if (row.optString("id") != id) continue
+            row.put("seaart_model", model.take(120))
+            row.put("seaart_lora", lora.take(200))
+            manifest.writeText(rows.toString(2))
+            return true
+        }
+        return false
+    }
     @Synchronized fun attachImage(id: String, uri: Uri): Boolean {
         val rows = all()
         for (i in 0 until rows.length()) {
@@ -61,7 +73,7 @@ object CharacterDraftPlanner {
                 "Prefer matching-face pairs / 同一CP, twin-like characters, coherent outfits and strong character silhouettes. " +
                 "Use the observed engagement only as a weak signal, not proof. " +
                 "Avoid copying a named copyrighted character or an identifiable real person's likeness. " +
-                "Return ONLY a JSON object with keys title (Japanese), rationale (Japanese), " +
+                "Return ONLY a JSON object with keys title (Japanese), rationale (Japanese), lora_hint (a short optional LoRA style/category suggestion, not an invented model ID), " +
                 "prompt (English detailed anime illustration prompt), negative_prompt (English), caption (Japanese). " +
                 "Make two original adult characters with identical faces when relevant. Observations: " + input.toString()
             val payload = JSONObject().put("model", settings.get("model")).put("messages",
@@ -77,6 +89,8 @@ object CharacterDraftPlanner {
                 require(start >= 0 && end > start) { "AIの提案を読み取れません" }
                 val draft = JSONObject(raw.substring(start, end + 1))
                 require(draft.optString("prompt").length in 20..3500) { "生成プロンプトが不正です" }
+                draft.put("seaart_model", "GR-Illustrious 3in1")
+                draft.put("seaart_lora", "")
                 draft.put("source_count", candidates.size).put("source_type", "unverified_x_image_likes")
                 draft
             }
