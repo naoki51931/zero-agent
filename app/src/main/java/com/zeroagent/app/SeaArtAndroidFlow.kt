@@ -344,16 +344,18 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                         val rect = Rect()
                         node.getBoundsInScreen(rect)
                         val text = label(node)
-                        rect.centerY() > screenHeight * 0.78f &&
+                        rect.centerY() > screenHeight * 0.72f &&
                             rect.centerX() > width * 0.25f &&
                             rect.width() > width * 0.25f &&
                             (text.contains("画像") || text.contains("プロンプト") ||
-                                text.contains("prompt", true) || text.contains("Txt2Img", true) ||
-                                text.length > 25)
+                                text.contains("prompt", true) || text.length > 25)
                     }.minByOrNull { node ->
                         val rect = Rect()
                         node.getBoundsInScreen(rect)
-                        rect.width() * rect.height()
+                        // Prefer actual composer controls over zero-height
+                        // accessibility text fragments.
+                        (if (rect.height() >= 30) 0 else 100000000) +
+                            rect.width() * rect.height()
                     }
                     val focused = candidates.any { it.isFocused }
                     val lastTap = settings.get("seaartComposerTapAt").toLongOrNull() ?: 0L
@@ -361,14 +363,32 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                         System.currentTimeMillis() - lastTap > 1800L) {
                         val rect = Rect()
                         composerBar.getBoundsInScreen(rect)
-                        val tapX = (rect.left + rect.width() * 0.55f).coerceIn(1f, (width - 2).toFloat())
-                        val tapY = rect.centerY().toFloat()
+                        // SeaArt sometimes exposes a text node with height=0
+                        // at the very bottom of the viewport. Never tap that
+                        // zero-height coordinate; use a valid clickable parent
+                        // or a bounded point above the navigation bar.
+                        var tapRect = Rect(rect)
+                        var parent = composerBar.parent
+                        repeat(4) {
+                            if (tapRect.height() >= 30) return@repeat
+                            val parentRect = Rect()
+                            parent?.getBoundsInScreen(parentRect)
+                            if (parentRect.height() >= 30 && parentRect.width() > width * 0.25f) {
+                                tapRect = parentRect
+                            }
+                            parent = parent?.parent
+                        }
+                        val tapX = (tapRect.left + tapRect.width() * 0.55f)
+                            .coerceIn(width * 0.25f, width * 0.85f)
+                        val tapY = if (tapRect.height() >= 30 && tapRect.centerY() < screenHeight - 60)
+                            tapRect.centerY().toFloat()
+                        else (screenHeight * 0.90f).coerceAtMost(screenHeight - 100f)
                         val path = Path().apply { moveTo(tapX, tapY) }
                         val gesture = GestureDescription.Builder()
                             .addStroke(GestureDescription.StrokeDescription(path, 0, 100))
                             .build()
                         val tapped = service.dispatchGesture(gesture, null, null)
-                        trace("compact composer one-tap dispatched=$tapped bounds=${rect.flattenToString()}")
+                        trace("compact composer one-tap dispatched=$tapped original=${rect.flattenToString()} target=${tapRect.flattenToString()} point=$tapX,$tapY")
                         if (tapped) {
                             settings.put("seaartComposerTapAt", System.currentTimeMillis().toString())
                             return
@@ -450,9 +470,9 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                     fun inGenerateArea(node: AccessibilityNodeInfo): Boolean {
                         if (!node.isVisibleToUser || node.isEditable) return false
                         val rect = generateBounds(node)
-                        return !rect.isEmpty && rect.centerY() > screenHeight * 0.60f &&
-                            rect.centerX() > width * 0.50f && rect.right <= width &&
-                            rect.bottom <= screenHeight && rect.width() >= 36 && rect.height() >= 28
+                        return !rect.isEmpty && rect.centerY() > screenHeight * 0.40f &&
+                            rect.centerX() > width * 0.45f && rect.left >= 0 &&
+                            rect.top >= 0 && rect.width() >= 20 && rect.height() >= 20
                     }
                     // Credit cost varies with model, plan and settings.
                     // Prefer a visible xN + lightning/credit label without
@@ -480,7 +500,34 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                         rect.width() * rect.height()
                     } ?: fallback.singleOrNull()
                     if (generate == null) {
-                        trace("generate not found: labeled=${labeled.size} fallback=${fallback.size}; no blind tap")
+                        // The compact bar can hide the purple generate button.
+                        // Open the prompt composer before trying again, rather
+                        // than mistaking the round up-arrow for Generate.
+                        val now = System.currentTimeMillis()
+                        val last = settings.get("seaartGenerateComposerTapAt").toLongOrNull() ?: 0L
+                        val promptBar = nodes.filter { node ->
+                            val rect = generateBounds(node)
+                            node.isVisibleToUser && !node.isEditable &&
+                                rect.centerY() > screenHeight * 0.72f &&
+                                rect.width() > width * 0.25f &&
+                                (label(node).contains("画像") ||
+                                    label(node).contains("prompt", true) ||
+                                    label(node).contains("プロンプト"))
+                        }.firstOrNull()
+                        if (promptBar != null && now - last > 2500L) {
+                            val rect = generateBounds(promptBar)
+                            val x = (rect.left + rect.width() * 0.65f).coerceIn(width * 0.3f, width * 0.85f)
+                            val y = if (rect.height() >= 30 && rect.centerY() < screenHeight - 60)
+                                rect.centerY().toFloat()
+                            else (screenHeight * 0.90f).coerceAtMost(screenHeight - 100f)
+                            val path = Path().apply { moveTo(x, y) }
+                            val dispatched = service.dispatchGesture(
+                                GestureDescription.Builder()
+                                    .addStroke(GestureDescription.StrokeDescription(path, 0, 100))
+                                    .build(), null, null)
+                            trace("generate hidden; opening composer tap=$dispatched at=$x,$y")
+                            if (dispatched) settings.put("seaartGenerateComposerTapAt", now.toString())
+                        } else trace("generate not found: labeled=${labeled.size} fallback=${fallback.size} composer=${promptBar != null}")
                         return
                     }
                     trace("generate match=" + (if (labeled.isNotEmpty()) "variable-credit-label" else "lower-right-control-fallback"))
