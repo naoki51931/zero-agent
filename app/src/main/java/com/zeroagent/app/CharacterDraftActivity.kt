@@ -84,6 +84,41 @@ class CharacterDraftActivity : Activity() {
             notify("操作ログをクリアしました")
         })
         body.addView(label("SeaArt操作状態: " + LocalSettings(this).get("seaartPendingState", "未開始") + "。生成後はSeaArtのダウンロードを自動操作します。SeaArt名を含む画像を日時で照合し、指定フォルダに投稿用コピーを作成して投稿待ちへ自動取り込みします。候補が複数の場合は手動選択してください。"))
+        val handoff = LocalSettings(this)
+        if (handoff.get("seaartPendingState") == "x_post_review_pending") {
+            body.addView(label("画像生成・保存が完了しました。X投稿用の画像と文章を確認してください。", 18f))
+            body.addView(button("X投稿画面を開く（投稿前に確認）") {
+                val uris = handoff.get("seaartPostCopyUris").split("|")
+                    .filter { it.isNotBlank() }.take(4).map(Uri::parse)
+                if (uris.isEmpty()) {
+                    notify("投稿用画像がありません。保存ログを確認してください")
+                    return@button
+                }
+                val draftId = handoff.get("seaartPendingId")
+                val drafts = store.list()
+                val draft = (0 until drafts.length()).mapNotNull { drafts.optJSONObject(it) }
+                    .firstOrNull { it.optString("id") == draftId }
+                val caption = draft?.optString("caption").orEmpty().take(280)
+                val share = Intent(if (uris.size == 1) Intent.ACTION_SEND else Intent.ACTION_SEND_MULTIPLE).apply {
+                    type = "image/*"
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    putExtra(Intent.EXTRA_TEXT, caption)
+                    if (uris.size == 1) putExtra(Intent.EXTRA_STREAM, uris.single())
+                    else putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
+                    clipData = ClipData.newUri(contentResolver, "SeaArt post image", uris.first()).apply {
+                        uris.drop(1).forEach { addItem(ClipData.Item(it)) }
+                    }
+                    setPackage("com.twitter.android")
+                }
+                try {
+                    startActivity(share)
+                } catch (_: android.content.ActivityNotFoundException) {
+                    share.setPackage(null)
+                    startActivity(Intent.createChooser(share, "Xへ画像を共有"))
+                }
+            })
+            body.addView(label("Xで投稿ボタンを押すまでは公開されません。画像が5枚以上ある場合は最初の4枚を共有します。"))
+        }
         body.addView(button("SeaArtダウンロード・投稿用コピー保存フォルダを選択") {
             startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or
@@ -158,7 +193,10 @@ class CharacterDraftActivity : Activity() {
                 settings.put("seaartPendingLora", loraInput.text.toString())
                 settings.put("seaartRepeatTotal", count.toString())
                 settings.put("seaartRepeatCompleted", "0")
+                settings.put("seaartImagesInRound", "0")
                 settings.put("seaartImportedNames", "")
+                settings.put("seaartPostCopyUris", "")
+                settings.put("seaartXHandoffReady", "")
                 settings.put("seaartLastError", "")
                 settings.put("seaartActionLog", "SeaArt自動操作開始: 下部の創作タブを優先\nChrome起動を要求しました。画面イベント待機中\n")
                 settings.put("seaartPendingState", "awaiting_create")

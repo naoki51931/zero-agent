@@ -92,11 +92,21 @@ object SeaArtDownloadImporter {
                 return@withContext Result("copy_failed", error.message.orEmpty().take(100))
             }
             settings.put("seaartPostCopyName", copyName)
+            val previousUris = settings.get("seaartPostCopyUris")
+            settings.put("seaartPostCopyUris", listOf(previousUris, copyUri.toString()).filter { it.isNotBlank() }.joinToString("|"))
             settings.put("seaartImportedNames", (used + name).joinToString("\\n"))
+            val imagesInRound = (settings.get("seaartImagesInRound").toIntOrNull() ?: 0) + 1
+            settings.put("seaartImagesInRound", imagesInRound.toString())
+            if (imagesInRound < 4) {
+                settings.put("seaartImportedFilename", name)
+                return@withContext Result("image_saved", "Saved $imagesInRound / 4")
+            }
+            settings.put("seaartImagesInRound", "0")
             val completed = (settings.get("seaartRepeatCompleted").toIntOrNull() ?: 0) + 1
             val total = (settings.get("seaartRepeatTotal").toIntOrNull() ?: 1).coerceIn(1, 20)
             settings.put("seaartRepeatCompleted", completed.toString())
-            settings.put("seaartPendingState", if (completed < total) "awaiting_generate" else "imported")
+            settings.put("seaartPendingState", if (completed < total) "awaiting_generate" else "x_post_review_pending")
+            if (completed >= total) settings.put("seaartXHandoffReady", id)
             settings.put("seaartImportedFilename", name)
             Result("imported", copyName)
         } catch (e: SecurityException) {
