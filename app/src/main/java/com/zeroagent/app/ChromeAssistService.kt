@@ -111,7 +111,9 @@ class ChromeAssistService : AccessibilityService() {
         val pairs = segments.indices.flatMap { i ->
             (i + 1 until segments.size).map { j -> segments[i] + " " + segments[j] }
         }
-        val queries = (segments + pairs).distinct().take(12)
+        val queries = (segments + pairs).distinct()
+            .sortedWith(compareByDescending<String> { XResearchPriority.score(it) })
+            .take(12)
         // Recompute on every run: older persisted phrases may contain malformed URL fragments.
         researchQueryStore.replace(objective, queries)
         return queries
