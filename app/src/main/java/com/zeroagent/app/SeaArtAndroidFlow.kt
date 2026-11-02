@@ -72,7 +72,23 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
             }
             fun next(value: String) { trace("state $state -> $value"); settings.put("seaartPendingState", value) }
 
-            val onCreatePage = nodes.any { label(it).contains("/create/image", true) }
+            val screenHeight = service.resources.displayMetrics.heightPixels
+            fun inHeader(node: AccessibilityNodeInfo): Boolean {
+                val bounds = Rect()
+                node.getBoundsInScreen(bounds)
+                return node.isVisibleToUser && !bounds.isEmpty &&
+                    bounds.centerY() in 0..(screenHeight * 0.26f).toInt()
+            }
+            // Chrome may truncate the address bar. The creation editor also exposes
+            // a top model selector and image-generation controls; the home feed does not.
+            val urlConfirmed = nodes.any { label(it).contains("/create/image", true) }
+            val editorConfirmed = nodes.any { inHeader(it) &&
+                Regex("(?i).*(GR-Illustrious|モデル|checkpoint|model).*").matches(label(it)) } &&
+                nodes.any { it.isVisibleToUser &&
+                    Regex("(?i).*(Img2Img|再編集|再生成|ライブラリ).*").matches(label(it)) }
+            val onCreatePage = urlConfirmed || editorConfirmed
+            if (editorConfirmed && !urlConfirmed) trace("editor identified by model header and editor controls (URL not exposed)")
+
             fun tapCreateTab(): Boolean {
                 val height = service.resources.displayMetrics.heightPixels
                 val width = service.resources.displayMetrics.widthPixels
@@ -119,7 +135,7 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                 "awaiting_create" -> {
                     if (onCreatePage) {
                         trace("confirmed /create/image")
-                        next("awaiting_editor")
+                        next("awaiting_model_menu")
                     } else if (tapCreateTab()) {
                         settings.put("seaartCreateTapAt", System.currentTimeMillis().toString())
                         next("awaiting_create_navigation")
@@ -141,52 +157,75 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                     }
                 }
                 "awaiting_model_menu" -> {
-                    // Only open an explicitly labelled model selector.
+                    if (!onCreatePage) { trace("model selection waiting for editor"); return }
                     val target = settings.get("seaartPendingModel").ifBlank { "GR-Illustrious 3in1" }
-                    if (nodes.any { it.isVisibleToUser && label(it).contains(target, true) }) {
-                        next(if (settings.get("seaartPendingLora").isBlank()) "awaiting_generate" else "awaiting_lora_menu")
+                    val selectedHeader = nodes.firstOrNull { inHeader(it) && label(it).contains(target, true) }
+                    if (selectedHeader != null) {
+                        trace("model already shown in header: ${target.take(60)}")
+                        next("awaiting_lora_menu")
                     } else {
-                        val selected = nodes.firstOrNull {
-                            it.isVisibleToUser && Regex("(?i).*(civedgemix|checkpoint|base model|使用モデル).*").matches(label(it))
+                        val selector = nodes.firstOrNull { inHeader(it) &&
+                            Regex("(?i).*(モデル|model|checkpoint|civedgemix|cityedgemix|illustrious).*").matches(label(it))
                         }
-                        if (click(selected ?: find("^(モデル|Model|モデルを選択|Select model|Checkpoint)$"))) next("awaiting_model_choice")
+                        if (click(selector)) {
+                            trace("opened model selector")
+                            next("awaiting_model_choice")
+                        } else trace("model selector not clickable")
                     }
                 }
                 "awaiting_model_choice" -> {
                     val model = settings.get("seaartPendingModel").ifBlank { "GR-Illustrious 3in1" }
-                    if (click(find("^" + Regex.escape(model) + ".*$"))) {
-                        next(if (settings.get("seaartPendingLora").isBlank()) "awaiting_generate" else "awaiting_lora_menu")
+                    val option = nodes.firstOrNull { it.isVisibleToUser &&
+                        label(it).contains(model, true) && !inHeader(it) }
+                    if (click(option)) {
+                        trace("selected model option: ${model.take(60)}")
+                        next("awaiting_model_menu")
                     } else {
-                        // Search inside a clearly identified model-search field only.
                         val search = nodes.firstOrNull { it.isEditable && it.isVisibleToUser &&
                             Regex("(?i).*(search model|モデルを検索).*").matches(label(it)) }
-                        if (search != null) type(search, model)
+                        if (search != null) {
+                            type(search, model)
+                            trace("searched model: ${model.take(60)}")
+                        } else trace("model option/search not found")
                     }
                 }
                 "awaiting_lora_menu" -> {
-                    val control = nodes.firstOrNull {
-                        it.isVisibleToUser && Regex("(?i).*(lora|ローラ).*").matches(label(it)) && !it.isEditable
+                    val lora = settings.get("seaartPendingLora")
+                    if (lora.isBlank()) {
+                        trace("LoRA not requested; continue to prompt")
+                        next("awaiting_editor")
+                    } else {
+                        val control = nodes.firstOrNull { it.isVisibleToUser &&
+                            Regex("(?i).*(lora|ローラ).*").matches(label(it)) && !it.isEditable }
+                        if (click(control)) {
+                            trace("opened LoRA selector")
+                            next("awaiting_lora_choice")
+                        } else trace("LoRA selector not found")
                     }
-                    if (click(control)) next("awaiting_lora_choice")
                 }
                 "awaiting_lora_choice" -> {
                     val lora = settings.get("seaartPendingLora")
-                    if (lora.isBlank()) { next("awaiting_generate"); return }
-                    if (click(find("^" + Regex.escape(lora) + ".*$"))) {
-                        next("awaiting_generate")
+                    if (lora.isBlank()) { next("awaiting_editor"); return }
+                    val option = nodes.firstOrNull { it.isVisibleToUser &&
+                        label(it).contains(lora, true) && !it.isEditable }
+                    if (click(option)) {
+                        trace("selected LoRA option: ${lora.take(60)}")
+                        next("awaiting_editor")
                     } else {
                         val search = nodes.firstOrNull { it.isEditable && it.isVisibleToUser &&
                             Regex("(?i).*(search lora|loraを検索|LoRA検索).*").matches(label(it)) }
-                        if (search != null) type(search, lora)
+                        if (search != null) {
+                            type(search, lora)
+                            trace("searched LoRA: ${lora.take(60)}")
+                        } else trace("LoRA option/search not found")
                     }
                 }
                 "awaiting_editor" -> {
                     val prompt = settings.get("seaartPendingPrompt")
                     if (prompt.length !in 20..3500) { next("invalid_prompt"); return }
-                    // The mobile SeaArt prompt field may expose only its existing text, not a label.
                     val candidates = nodes.filter { node ->
                         if (!node.isEditable || !node.isVisibleToUser || node.isPassword) return@filter false
-                        val bounds = android.graphics.Rect()
+                        val bounds = Rect()
                         node.getBoundsInScreen(bounds)
                         bounds.top > 120 && bounds.height() > 35 &&
                             !Regex("(?i).*(search|検索|url|アドレス|address|lora|model|モデル).*")
@@ -196,7 +235,24 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                         Regex("(?i).*(prompt|プロンプト|入力して|describe your image).*")
                             .matches(label(it))
                     } ?: candidates.singleOrNull()
-                    if (type(promptNode, prompt)) next("awaiting_model_menu")
+                    if (promptNode?.text?.toString() == prompt) {
+                        trace("prompt verified in editor")
+                        next("awaiting_generate")
+                    } else if (type(promptNode, prompt)) {
+                        trace("prompt input sent; awaiting confirmation")
+                        next("awaiting_prompt_confirmation")
+                    } else trace("prompt editable field not found candidates=${candidates.size}")
+                }
+                "awaiting_prompt_confirmation" -> {
+                    val prompt = settings.get("seaartPendingPrompt")
+                    if (nodes.any { it.isEditable && it.isVisibleToUser &&
+                            it.text?.toString() == prompt }) {
+                        trace("prompt confirmed")
+                        next("awaiting_generate")
+                    } else {
+                        trace("prompt not confirmed; retry editor")
+                        next("awaiting_editor")
+                    }
                 }
                 "awaiting_generate" -> {
                     val generate = find("^(生成|生成する|Generate|今すぐ生成|Start generating)$")
@@ -206,8 +262,10 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                         }
                     if (generate != null) {
                         settings.put("seaartPendingSince", System.currentTimeMillis().toString())
-                        next("awaiting_download")
-                        if (!click(generate)) next("generation_click_failed")
+                        if (click(generate)) {
+                            trace("generation button clicked")
+                            next("awaiting_download")
+                        } else next("generation_click_failed")
                     }
                 }
                 "awaiting_download" -> {
