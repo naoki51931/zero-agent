@@ -35,7 +35,7 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
             if (root.packageName?.toString() != "com.android.chrome") return
             val nodes = mutableListOf<AccessibilityNodeInfo>()
             fun walk(node: AccessibilityNodeInfo, depth: Int) {
-                if (depth > 24 || nodes.size >= 300) return
+                if (depth > 40 || nodes.size >= 2500) return
                 nodes.add(node)
                 for (i in 0 until node.childCount) node.getChild(i)?.let { walk(it, depth + 1) }
             }
@@ -76,17 +76,25 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
             fun tapCreateTab(): Boolean {
                 val height = service.resources.displayMetrics.heightPixels
                 val width = service.resources.displayMetrics.widthPixels
-                val tabs = nodes.filter {
-                    it.isVisibleToUser &&
-                        Regex("^(創作|Create|AI創作|AI Creation)$", RegexOption.IGNORE_CASE).matches(label(it))
-                }.mapNotNull { node ->
+                // Search all visible nodes, including nested text/icon labels. Limit
+                // matches to the bottom navigation region so the home composer
+                // Create button is never selected.
+                val tabs = nodes.mapNotNull { node ->
+                    if (!node.isVisibleToUser) return@mapNotNull null
                     val rect = Rect()
                     node.getBoundsInScreen(rect)
-                    if (rect.isEmpty || rect.centerY() < height * 0.65f ||
-                        rect.centerX() !in 0..width || rect.centerY() !in 0..height) null
-                    else node to rect
-                }.sortedByDescending { it.second.centerY() }
-                trace("bottom Create candidates=${tabs.size} nodes=${nodes.size} state=$state")
+                    if (rect.isEmpty || rect.centerY() < height * 0.78f ||
+                        rect.centerX() !in 0..width || rect.centerY() !in 0..height) return@mapNotNull null
+                    val text = label(node)
+                    val matches = Regex("(^|\\\\s)(創作|Create)(\\\\s|$)", RegexOption.IGNORE_CASE)
+                        .containsMatchIn(text) || text.trim() in setOf("創作", "AI創作")
+                    if (!matches) return@mapNotNull null
+                    Triple(node, rect, text)
+                }.sortedWith(compareByDescending<Triple<AccessibilityNodeInfo, Rect, String>> {
+                    it.second.centerY()
+                }.thenBy { it.second.width() * it.second.height() })
+                trace("bottom Create candidates=${tabs.size} nodes=${nodes.size} capped=${nodes.size >= 2500} state=$state " +
+                    "labels=${tabs.take(3).joinToString { it.third.take(60) }}")
                 val chosen = tabs.firstOrNull()
                 if (chosen == null) {
                     nodes.lastOrNull { it.isScrollable && it.isVisibleToUser }
@@ -95,7 +103,7 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                     settings.put("seaartLastError", "画面下の創作タブを探索中")
                     return false
                 }
-                trace("bottom Create bounds=${chosen.second.flattenToString()} label=${label(chosen.first).take(80)} clickable=${chosen.first.isClickable}")
+                trace("bottom Create bounds=${chosen.second.flattenToString()} label=${chosen.third.take(80)} clickable=${chosen.first.isClickable}")
                 if (click(chosen.first)) { trace("ACTION_CLICK returned true (navigation unverified)"); return true }
                 // Some Chrome web navigation elements expose no ACTION_CLICK. Use a
                 // bounded gesture at the actual accessibility node, not a hardcoded coordinate.
