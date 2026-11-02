@@ -3,7 +3,6 @@ package com.zeroagent.app
 import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
-import android.provider.OpenableColumns
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Locale
@@ -62,7 +61,7 @@ object SeaArtDownloadImporter {
             if (matches.size != 1) return@withContext Result("ambiguous", matches.size.toString())
             val (uri, name) = matches.single()
             val store = CharacterDraftStore(context)
-            if (store.list().let { rows -> (0 until rows.length()).none { i ->
+            if (store.list().let { rows -> (0 until rows.length()).any { i ->
                     rows.optJSONObject(i)?.optString("id") == id &&
                         rows.optJSONObject(i)?.optString("status") == "ready_for_post_review"
                 } }) return@withContext Result("already_imported")
