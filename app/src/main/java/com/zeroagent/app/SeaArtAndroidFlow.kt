@@ -349,7 +349,7 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                             rect.width() > width * 0.25f &&
                             (text.contains("画像") || text.contains("プロンプト") ||
                                 text.contains("prompt", true) || text.contains("Txt2Img", true) ||
-                                text.contains("宝鐘") || text.length > 25)
+                                text.length > 25)
                     }.minByOrNull { node ->
                         val rect = Rect()
                         node.getBoundsInScreen(rect)
