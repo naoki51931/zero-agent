@@ -752,6 +752,20 @@ class ChromeAssistService : AccessibilityService() {
             }
             return
         }
+        if (event.packageName?.toString() == "com.android.chrome" &&
+            event.eventType in setOf(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+                AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)) {
+            val pending = LocalSettings(this).get("seaartPendingState")
+            if (pending in setOf("awaiting_editor", "awaiting_generate") && !seaartFlowBusy) {
+                seaartFlowBusy = true
+                scope.launch {
+                    try {
+                        delay(900)
+                        SeaArtAndroidFlow(this@ChromeAssistService).advance()
+                    } finally { seaartFlowBusy = false }
+                }
+            }
+        }
         if (demonstrating && (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED || event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED)) recordDemonstration(event)
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val isChrome = isSupportedScreen(event.packageName?.toString())
