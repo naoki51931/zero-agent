@@ -209,7 +209,7 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                 .filter { it.isNotBlank() }
             fun normalizeModel(value: String): String =
                 value.lowercase(java.util.Locale.ROOT)
-                    .replace(Regex("""[\\s_\\-]+"""), "")
+                    .replace(Regex("""[\s_\-]+"""), "")
             val expected = normalizeModel(requestedModel)
             val combinedHeader = normalizeModel(headerLabels.joinToString(" "))
             val modelInEditorHeader = onCreatePage && (
