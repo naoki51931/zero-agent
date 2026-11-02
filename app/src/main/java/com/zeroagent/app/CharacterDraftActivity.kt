@@ -139,6 +139,7 @@ class CharacterDraftActivity : Activity() {
                 settings.put("seaartPendingLora", loraInput.text.toString())
                 settings.put("seaartRepeatTotal", count.toString())
                 settings.put("seaartRepeatCompleted", "0")
+                settings.put("seaartImportedNames", "")
                 settings.put("seaartPendingState", "awaiting_create")
                 settings.put("seaartPendingSince", System.currentTimeMillis().toString())
                 notify("SeaArtで創作→モデル→LoRA→生成を自動操作します。ログイン済みであることを確認してください")
