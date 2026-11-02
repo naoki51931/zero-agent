@@ -587,10 +587,11 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                         }
                         return
                     }
+                    val selected = generate ?: return
                     trace("generate match=" + (if (labeled.isNotEmpty()) "variable-credit-label" else "lower-right-control-fallback"))
-                    val rect = generateBounds(generate)
-                    trace("purple generate candidate label=${label(generate).take(90)} bounds=${rect.flattenToString()} clickable=${generate.isClickable}")
-                    val clicked = click(generate)
+                    val rect = generateBounds(selected)
+                    trace("purple generate candidate label=${label(selected).take(90)} bounds=${rect.flattenToString()} clickable=${selected.isClickable}")
+                    val clicked = click(selected)
                     if (clicked) {
                         trace("purple generate ACTION_CLICK accepted; awaiting generation")
                         settings.put("seaartPendingSince", System.currentTimeMillis().toString())
