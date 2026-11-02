@@ -51,22 +51,25 @@ object SeaArtDownloadImporter {
                         (lower.endsWith(".png") || lower.endsWith(".jpg") ||
                             lower.endsWith(".jpeg") || lower.endsWith(".webp"))
                     // Require both a recognizable SeaArt filename and a fresh modification time.
-                    if (!looksSeaArt || !image || modified < since - 5_000L ||
+                    if (!looksSeaArt || !image || modified < since ||
                         modified > System.currentTimeMillis() + 60_000L || size !in 8L..20_000_000L) continue
                     val document = DocumentsContract.buildDocumentUriUsingTree(tree, cursor.getString(idIndex))
                     matches.add(document to name)
                 }
             } ?: return@withContext Result("unavailable")
             if (matches.isEmpty()) return@withContext Result("not_found")
-            if (matches.size != 1) return@withContext Result("ambiguous", matches.size.toString())
-            val (uri, name) = matches.single()
+            val used = settings.get("seaartImportedNames").split("\\n").filter { it.isNotBlank() }.toSet()
+            val fresh = matches.filter { it.second !in used }
+            if (fresh.isEmpty()) return@withContext Result("not_found")
+            if (fresh.size != 1) return@withContext Result("ambiguous", fresh.size.toString())
+            val (uri, name) = fresh.single()
             val store = CharacterDraftStore(context)
-            if (store.list().let { rows -> (0 until rows.length()).any { i ->
-                    rows.optJSONObject(i)?.optString("id") == id &&
-                        rows.optJSONObject(i)?.optString("status") == "ready_for_post_review"
-                } }) return@withContext Result("already_imported")
             if (!store.attachImage(id, uri)) return@withContext Result("copy_failed")
-            settings.put("seaartPendingState", "imported")
+            settings.put("seaartImportedNames", (used + name).joinToString("\\n"))
+            val completed = (settings.get("seaartRepeatCompleted").toIntOrNull() ?: 0) + 1
+            val total = (settings.get("seaartRepeatTotal").toIntOrNull() ?: 1).coerceIn(1, 20)
+            settings.put("seaartRepeatCompleted", completed.toString())
+            settings.put("seaartPendingState", if (completed < total) "awaiting_generate" else "imported")
             settings.put("seaartImportedFilename", name)
             Result("imported", name)
         } catch (e: SecurityException) {
