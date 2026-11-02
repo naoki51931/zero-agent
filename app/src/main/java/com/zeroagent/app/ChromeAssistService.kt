@@ -761,7 +761,8 @@ class ChromeAssistService : AccessibilityService() {
             if (pending in setOf("awaiting_create", "awaiting_model_menu", "awaiting_model_choice",
                     "awaiting_lora_menu", "awaiting_lora_choice", "awaiting_editor",
                     "awaiting_generate", "awaiting_download", "download_requested")) {
-                panel?.visibility = android.view.View.GONE
+                minimizeForResearch?.invoke()
+                panel?.visibility = android.view.View.VISIBLE
                 consentPanel?.visibility = android.view.View.GONE
             }
             if (pending == "download_requested" && !seaartImportPolling) {
@@ -796,7 +797,8 @@ class ChromeAssistService : AccessibilityService() {
                 "awaiting_create", "awaiting_model_menu", "awaiting_model_choice",
                 "awaiting_lora_menu", "awaiting_lora_choice", "awaiting_editor",
                 "awaiting_generate", "awaiting_download", "download_requested")
-            panel?.visibility = if (seaartActive) android.view.View.GONE else android.view.View.VISIBLE
+            if (seaartActive) minimizeForResearch?.invoke()
+            panel?.visibility = android.view.View.VISIBLE
             if (!chromeActive) {
                 chromeActive = true
                 if (!browserConsentShown && !seaartActive) {
