@@ -679,6 +679,13 @@ class ChromeAssistService : AccessibilityService() {
             PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.TOP; y = (48 * resources.displayMetrics.density).toInt() }
         val controls = listOf(status, objective, demoStart, demoStop, suggest, accept, auto, xResearch, testLog, xResults, stop)
+        val closeFloat = Button(this).apply {
+            text = "× 閉じる"
+            setOnClickListener {
+                floatingDismissed = true
+                layout.visibility = android.view.View.GONE
+            }
+        }
         var compact = false
         fun setCompact(value: Boolean) {
             compact = value
@@ -734,13 +741,6 @@ class ChromeAssistService : AccessibilityService() {
                 }
                 MotionEvent.ACTION_CANCEL -> true
                 else -> false
-            }
-        }
-        val closeFloat = Button(this).apply {
-            text = "× 閉じる"
-            setOnClickListener {
-                floatingDismissed = true
-                layout.visibility = android.view.View.GONE
             }
         }
         val toggle = Button(this).apply {
