@@ -1,6 +1,9 @@
 package com.zeroagent.app
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
+import android.graphics.Path
+import android.graphics.Rect
 import android.os.Bundle
 import android.view.accessibility.AccessibilityNodeInfo
 
@@ -62,28 +65,51 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
             }
             fun next(value: String) { settings.put("seaartPendingState", value) }
 
-            val onCreatePage = nodes.any { label(it).contains("/create/image", true) || label(it).contains("Img2Img", true) }
+            val onCreatePage = nodes.any { label(it).contains("/create/image", true) }
+            fun tapCreateTab(): Boolean {
+                val height = service.resources.displayMetrics.heightPixels
+                val width = service.resources.displayMetrics.widthPixels
+                val tabs = nodes.filter {
+                    it.isVisibleToUser &&
+                        Regex("^(創作|Create|AI創作|AI Creation)$", RegexOption.IGNORE_CASE).matches(label(it))
+                }.mapNotNull { node ->
+                    val rect = Rect()
+                    node.getBoundsInScreen(rect)
+                    if (rect.isEmpty || rect.centerY() < height * 0.65f ||
+                        rect.centerX() !in 0..width || rect.centerY() !in 0..height) null
+                    else node to rect
+                }.sortedByDescending { it.second.centerY() }
+                val chosen = tabs.firstOrNull() ?: return false
+                if (click(chosen.first)) return true
+                // Some Chrome web navigation elements expose no ACTION_CLICK. Use a
+                // bounded gesture at the actual accessibility node, not a hardcoded coordinate.
+                val rect = chosen.second
+                val path = Path().apply { moveTo(rect.centerX().toFloat(), rect.centerY().toFloat()) }
+                val gesture = GestureDescription.Builder()
+                    .addStroke(GestureDescription.StrokeDescription(path, 0, 90)).build()
+                return service.dispatchGesture(gesture, null, null)
+            }
             when (state) {
                 "awaiting_create" -> {
-                    // A distinct Create/創作 entry; don't confuse it with Generate.
                     if (onCreatePage) {
                         next("awaiting_editor")
+                    } else if (tapCreateTab()) {
+                        settings.put("seaartCreateTapAt", System.currentTimeMillis().toString())
+                        next("awaiting_create_navigation")
                     } else {
-                        // SeaArt's home page has a bottom navigation tab named 創作.
-                        val screenHeight = service.resources.displayMetrics.heightPixels
-                        val createTabs = nodes.filter {
-                            it.isVisibleToUser && Regex("^(創作|Create|AI創作|AI Creation)$", RegexOption.IGNORE_CASE).matches(label(it))
-                        }.sortedByDescending {
-                            val rect = android.graphics.Rect()
-                            it.getBoundsInScreen(rect)
-                            rect.centerY()
+                        settings.put("seaartLastError", "創作タブが画面下部で見つかりません")
+                    }
+                }
+                "awaiting_create_navigation" -> {
+                    if (onCreatePage) {
+                        settings.put("seaartLastError", "")
+                        next("awaiting_editor")
+                    } else {
+                        val tapAt = settings.get("seaartCreateTapAt").toLongOrNull() ?: 0L
+                        if (System.currentTimeMillis() - tapAt > 6000L) {
+                            settings.put("seaartLastError", "創作クリック後も画面遷移を確認できません")
+                            next("awaiting_create")
                         }
-                        val bottomTab = createTabs.firstOrNull {
-                            val rect = android.graphics.Rect()
-                            it.getBoundsInScreen(rect)
-                            rect.centerY() > screenHeight / 2
-                        }
-                        if (click(bottomTab ?: createTabs.firstOrNull())) next("awaiting_editor")
                     }
                 }
                 "awaiting_model_menu" -> {
