@@ -34,7 +34,7 @@ class CharacterDraftStore(private val context: Context) {
             context.contentResolver.openInputStream(uri)?.use { input ->
                 dest.outputStream().use { output -> input.copyTo(output) }
             } ?: return false
-            require(dest.length() in 8..20_000_000) { "Invalid image size" }
+            require(dest.length() in 8L..20_000_000L) { "Invalid image size" }
             row.put("image_path", dest.absolutePath).put("status", "ready_for_post_review")
             manifest.writeText(rows.toString(2))
             return true
