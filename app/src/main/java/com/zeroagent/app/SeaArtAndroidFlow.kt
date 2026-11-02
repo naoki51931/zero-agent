@@ -404,26 +404,43 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                         node.getBoundsInScreen(rect)
                         return rect
                     }
-                    val candidates = nodes.filter { node ->
-                        if (!node.isVisibleToUser || node.isEditable) return@filter false
+                    fun inGenerateArea(node: AccessibilityNodeInfo): Boolean {
+                        if (!node.isVisibleToUser || node.isEditable) return false
                         val rect = generateBounds(node)
-                        if (rect.isEmpty || rect.centerY() < screenHeight * 0.60f ||
-                            rect.centerX() < width * 0.50f) return@filter false
-                        val value = label(node).replace("×", "x").replace("Ｘ", "x")
-                        Regex("(?i).*(生成する|今すぐ生成|generate|start generating).*").matches(value) ||
-                            Regex("(?is).*x\\s*[1-4]\\b.*(⚡|\\d+[.]\\d+|クレジット).*").matches(value) ||
-                            Regex("(?is).*(⚡|\\d+[.]\\d+).*x\\s*[1-4]\\b.*").matches(value)
+                        return !rect.isEmpty && rect.centerY() > screenHeight * 0.60f &&
+                            rect.centerX() > width * 0.50f && rect.right <= width &&
+                            rect.bottom <= screenHeight && rect.width() >= 36 && rect.height() >= 28
                     }
-                    val generate = candidates.minByOrNull { node ->
+                    // Credit cost varies with model, plan and settings.
+                    // Prefer a visible xN + lightning/credit label without
+                    // depending on any fixed number or decimal value.
+                    val creditPattern = Regex("""(?is).*(?:[x×Ｘ]\s*\d+.*(?:⚡|クレジット|credits?|\d+[.,]\d+)|(?:⚡|クレジット|credits?)\s*\d+.*[x×Ｘ]\s*\d+).*""")
+                    val namedPattern = Regex("(?i).*(生成する|今すぐ生成|generate|start generating).*")
+                    val labeled = nodes.filter(::inGenerateArea).filter { node ->
+                        val value = label(node)
+                        creditPattern.matches(value) || namedPattern.matches(value)
+                    }
+                    // Accessibility does not expose the actual purple fill
+                    // color. If the text is missing, choose only a unique
+                    // compact clickable control in the lower-right composer.
+                    val fallback = nodes.filter(::inGenerateArea).filter { node ->
                         val rect = generateBounds(node)
-                        // Prefer the small right-hand control over large
-                        // containers that include unrelated page content.
+                        val value = label(node)
+                        val isControl = node.isClickable || node.parent?.isClickable == true
+                        val compact = rect.width() in (width * 0.12f).toInt()..(width * 0.62f).toInt() &&
+                            rect.height() in 28..(screenHeight * 0.13f).toInt()
+                        val unrelated = Regex("(?i).*(download|ダウンロード|戻る|back|share|共有|lora|モデル|設定|メニュー|閉じる|cancel|キャンセル).*").matches(value)
+                        isControl && compact && !unrelated
+                    }.distinctBy { generateBounds(it).flattenToString() }
+                    val generate = labeled.minByOrNull { node ->
+                        val rect = generateBounds(node)
                         rect.width() * rect.height()
-                    }
+                    } ?: fallback.singleOrNull()
                     if (generate == null) {
-                        trace("purple generate button not found candidates=0; waiting")
+                        trace("generate not found: labeled=${labeled.size} fallback=${fallback.size}; no blind tap")
                         return
                     }
+                    trace("generate match=" + (if (labeled.isNotEmpty()) "variable-credit-label" else "lower-right-control-fallback"))
                     val rect = generateBounds(generate)
                     trace("purple generate candidate label=${label(generate).take(90)} bounds=${rect.flattenToString()} clickable=${generate.isClickable}")
                     val clicked = click(generate)
