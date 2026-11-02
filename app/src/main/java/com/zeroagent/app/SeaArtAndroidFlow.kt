@@ -32,7 +32,7 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
         }
         val root = service.rootInActiveWindow ?: run { trace("rootInActiveWindow=null state=$state"); return }
         try {
-            if (root.packageName?.toString() != "com.android.chrome") { trace("not Chrome: ${root.packageName} state=$state"); return }
+            if (root.packageName?.toString() != "com.android.chrome") return
             val nodes = mutableListOf<AccessibilityNodeInfo>()
             fun walk(node: AccessibilityNodeInfo, depth: Int) {
                 if (depth > 24 || nodes.size >= 300) return
