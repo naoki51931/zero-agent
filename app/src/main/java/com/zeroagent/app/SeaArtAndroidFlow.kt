@@ -103,6 +103,7 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                 "awaiting_generate" -> {
                     val generate = find("^(生成|生成する|Generate|今すぐ生成|Start generating)$")
                     if (generate != null) {
+                        settings.put("seaartPendingSince", System.currentTimeMillis().toString())
                         next("awaiting_download")
                         if (!click(generate)) next("generation_click_failed")
                     }
