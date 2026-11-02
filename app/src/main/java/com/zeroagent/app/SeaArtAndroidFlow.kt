@@ -403,10 +403,10 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                         else (screenHeight * 0.90f).coerceAtMost(screenHeight - 100f)
                         val path = Path().apply { moveTo(tapX, tapY) }
                         val gesture = GestureDescription.Builder()
-                            .addStroke(GestureDescription.StrokeDescription(path, 0, 100))
+                            .addStroke(GestureDescription.StrokeDescription(path, 0, 350))
                             .build()
                         val tapped = service.dispatchGesture(gesture, null, null)
-                        trace("compact composer one-tap dispatched=$tapped original=${rect.flattenToString()} target=${tapRect.flattenToString()} point=$tapX,$tapY")
+                        trace("compact composer 350ms tap dispatched=$tapped original=${rect.flattenToString()} target=${tapRect.flattenToString()} point=$tapX,$tapY")
                         if (tapped) {
                             settings.put("seaartComposerTapAt", System.currentTimeMillis().toString())
                             return
