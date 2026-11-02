@@ -791,7 +791,15 @@ class ChromeAssistService : AccessibilityService() {
                             delay(1500)
                             val current = LocalSettings(this@ChromeAssistService).get("seaartPendingState")
                             if (current !in setOf("awaiting_create", "awaiting_create_navigation")) return@launch
-                            if (!seaartFlowBusy) {
+                            // A timer can fire after the user switches to ChatGPT or
+                            // Zero Agent. Never advance SeaArt on another app's window.
+                            val activeRoot = rootInActiveWindow
+                            val chromeForeground = try {
+                                activeRoot?.packageName?.toString() == "com.android.chrome"
+                            } finally {
+                                activeRoot?.recycle()
+                            }
+                            if (chromeForeground && !seaartFlowBusy) {
                                 seaartFlowBusy = true
                                 try { SeaArtAndroidFlow(this@ChromeAssistService).advance() }
                                 finally { seaartFlowBusy = false }
