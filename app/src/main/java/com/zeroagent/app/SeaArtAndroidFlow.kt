@@ -174,18 +174,25 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                 "awaiting_model_menu" -> {
                     if (!onCreatePage) { trace("model selection waiting for editor"); return }
                     val target = settings.get("seaartPendingModel").ifBlank { "GR-Illustrious 3in1" }
-                    val selectedHeader = nodes.firstOrNull { inHeader(it) && label(it).contains(target, true) }
-                    if (selectedHeader != null) {
-                        trace("model already shown in header: ${target.take(60)}")
+                    // The header text alone does not prove that this run explicitly
+                    // selected the desired checkpoint. Open the selector once per run.
+                    val confirmed = settings.get("seaartModelConfirmed") == settings.get("seaartPendingSince")
+                    if (confirmed) {
+                        trace("model selection confirmed for this run: ${target.take(60)}")
                         next("awaiting_lora_menu")
                     } else {
                         val selector = nodes.firstOrNull { inHeader(it) &&
+                            label(it).contains(target, true) } ?: nodes.firstOrNull { inHeader(it) &&
                             Regex("(?i).*(モデル|model|checkpoint|civedgemix|cityedgemix|illustrious).*").matches(label(it))
                         }
                         if (click(selector)) {
-                            trace("opened model selector")
+                            trace("opened model selector label=${selector?.let { label(it).take(80) }}")
                             next("awaiting_model_choice")
-                        } else trace("model selector not clickable")
+                        } else {
+                            trace("model selector not clickable; header candidates=" +
+                                nodes.filter { inHeader(it) && Regex("(?i).*(モデル|model|illustrious).*").matches(label(it)) }
+                                    .take(4).joinToString { label(it).take(60) })
+                        }
                     }
                 }
                 "awaiting_model_choice" -> {
@@ -193,7 +200,8 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                     val option = nodes.firstOrNull { it.isVisibleToUser &&
                         label(it).contains(model, true) && !inHeader(it) }
                     if (click(option)) {
-                        trace("selected model option: ${model.take(60)}")
+                        trace("clicked model option: ${model.take(60)}")
+                        settings.put("seaartModelConfirmed", settings.get("seaartPendingSince"))
                         next("awaiting_model_menu")
                     } else {
                         val search = nodes.firstOrNull { it.isEditable && it.isVisibleToUser &&
@@ -201,7 +209,11 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                         if (search != null) {
                             type(search, model)
                             trace("searched model: ${model.take(60)}")
-                        } else trace("model option/search not found")
+                        } else {
+                            trace("model option/search not found; visible matches=" +
+                                nodes.filter { it.isVisibleToUser && label(it).contains(model, true) }
+                                    .take(4).joinToString { label(it).take(70) })
+                        }
                     }
                 }
                 "awaiting_lora_menu" -> {
@@ -256,7 +268,12 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                     } else if (type(promptNode, prompt)) {
                         trace("prompt input sent; awaiting confirmation")
                         next("awaiting_prompt_confirmation")
-                    } else trace("prompt editable field not found candidates=${candidates.size}")
+                    } else trace("prompt editable field not found candidates=${candidates.size} details=" +
+                        candidates.take(5).joinToString { node ->
+                            val rect = Rect()
+                            node.getBoundsInScreen(rect)
+                            "text=${label(node).take(60)} bounds=${rect.flattenToString()}"
+                        })
                 }
                 "awaiting_prompt_confirmation" -> {
                     val prompt = settings.get("seaartPendingPrompt")
