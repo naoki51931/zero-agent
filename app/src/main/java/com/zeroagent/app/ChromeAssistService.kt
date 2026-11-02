@@ -789,25 +789,37 @@ class ChromeAssistService : AccessibilityService() {
                 seaartNavigationPolling = true
                 scope.launch {
                     try {
-                        repeat(60) {
+                        // Keep polling for the lifetime of the current SeaArt run.
+                        // A fixed 90-second loop previously expired while the page
+                        // was still loading, leaving awaiting_model_menu stranded.
+                        while (true) {
                             delay(1500)
-                            val current = LocalSettings(this@ChromeAssistService).get("seaartPendingState")
+                            val prefs = LocalSettings(this@ChromeAssistService)
+                            val current = prefs.get("seaartPendingState")
                             if (current !in setOf("awaiting_create", "awaiting_create_navigation",
                                     "awaiting_model_menu", "awaiting_model_choice", "awaiting_lora_menu",
                                     "awaiting_lora_choice", "awaiting_editor", "awaiting_prompt_confirmation",
-                                    "awaiting_generate")) return@launch
-                            // A timer can fire after the user switches to ChatGPT or
-                            // Zero Agent. Never advance SeaArt on another app's window.
-                            val activeRoot = rootInActiveWindow
-                            val chromeForeground = try {
-                                activeRoot?.packageName?.toString() == "com.android.chrome"
-                            } finally {
-                                activeRoot?.recycle()
+                                    "awaiting_generate")) break
+                            val since = prefs.get("seaartPendingSince").toLongOrNull() ?: 0L
+                            if (since <= 0L || System.currentTimeMillis() - since > 15 * 60_000L) {
+                                prefs.put("seaartActionLog", (prefs.get("seaartActionLog") +
+                                    "SeaArt poll ended: run timeout at state=" + current + "\\n").takeLast(12000))
+                                prefs.put("seaartPendingState", "")
+                                break
                             }
+                            val activeRoot = rootInActiveWindow
+                            val chromeForeground = activeRoot?.packageName?.toString() == "com.android.chrome"
+                            // Do not recycle the service-owned active root before advance().
                             if (chromeForeground && !seaartFlowBusy) {
                                 seaartFlowBusy = true
-                                try { SeaArtAndroidFlow(this@ChromeAssistService).advance() }
-                                finally { seaartFlowBusy = false }
+                                try {
+                                    SeaArtAndroidFlow(this@ChromeAssistService).advance()
+                                } catch (error: Exception) {
+                                    prefs.put("seaartActionLog", (prefs.get("seaartActionLog") +
+                                        "SeaArt advance error state=" + current + " " +
+                                        error.javaClass.simpleName + ": " +
+                                        (error.message ?: "") + "\\n").takeLast(12000))
+                                } finally { seaartFlowBusy = false }
                             }
                         }
                     } finally { seaartNavigationPolling = false }
