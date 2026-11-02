@@ -62,7 +62,7 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
             }
             fun next(value: String) { settings.put("seaartPendingState", value) }
 
-            val onCreatePage = nodes.any { label(it).contains("/create/image", true) }
+            val onCreatePage = nodes.any { label(it).contains("/create/image", true) || label(it).contains("Img2Img", true) }
             when (state) {
                 "awaiting_create" -> {
                     // A distinct Create/創作 entry; don't confuse it with Generate.
@@ -88,11 +88,19 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                 }
                 "awaiting_model_menu" -> {
                     // Only open an explicitly labelled model selector.
-                    if (click(find("^(モデル|Model|モデルを選択|Select model|Checkpoint)$"))) next("awaiting_model_choice")
+                    val target = settings.get("seaartPendingModel").ifBlank { "GR-Illustrious 3in1" }
+                    if (nodes.any { it.isVisibleToUser && label(it).contains(target, true) }) {
+                        next(if (settings.get("seaartPendingLora").isBlank()) "awaiting_generate" else "awaiting_lora_menu")
+                    } else {
+                        val selected = nodes.firstOrNull {
+                            it.isVisibleToUser && Regex("(?i).*(civedgemix|checkpoint|base model|使用モデル).*").matches(label(it))
+                        }
+                        if (click(selected ?: find("^(モデル|Model|モデルを選択|Select model|Checkpoint)$"))) next("awaiting_model_choice")
+                    }
                 }
                 "awaiting_model_choice" -> {
                     val model = settings.get("seaartPendingModel").ifBlank { "GR-Illustrious 3in1" }
-                    if (click(find("^" + Regex.escape(model) + "$"))) {
+                    if (click(find("^" + Regex.escape(model) + ".*$"))) {
                         next(if (settings.get("seaartPendingLora").isBlank()) "awaiting_generate" else "awaiting_lora_menu")
                     } else {
                         // Search inside a clearly identified model-search field only.
@@ -102,12 +110,15 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                     }
                 }
                 "awaiting_lora_menu" -> {
-                    if (click(find("^(LoRA|LoRAを追加|Add LoRA|Select LoRA|LoRAを選択)$"))) next("awaiting_lora_choice")
+                    val control = nodes.firstOrNull {
+                        it.isVisibleToUser && Regex("(?i).*(lora|ローラ).*").matches(label(it)) && !it.isEditable
+                    }
+                    if (click(control)) next("awaiting_lora_choice")
                 }
                 "awaiting_lora_choice" -> {
                     val lora = settings.get("seaartPendingLora")
                     if (lora.isBlank()) { next("awaiting_generate"); return }
-                    if (click(find("^" + Regex.escape(lora) + "$"))) {
+                    if (click(find("^" + Regex.escape(lora) + ".*$"))) {
                         next("awaiting_generate")
                     } else {
                         val search = nodes.firstOrNull { it.isEditable && it.isVisibleToUser &&
@@ -135,6 +146,10 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                 }
                 "awaiting_generate" -> {
                     val generate = find("^(生成|生成する|Generate|今すぐ生成|Start generating)$")
+                        ?: nodes.firstOrNull {
+                            it.isVisibleToUser && Regex("(?is).*x\\s*1\\s*.*(⚡|\\d+[.]\\d+).*").matches(label(it)) &&
+                                (it.isClickable || it.parent?.isClickable == true)
+                        }
                     if (generate != null) {
                         settings.put("seaartPendingSince", System.currentTimeMillis().toString())
                         next("awaiting_download")
