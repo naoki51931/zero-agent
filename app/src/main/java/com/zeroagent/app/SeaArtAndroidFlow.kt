@@ -40,8 +40,13 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
             fun click(node: AccessibilityNodeInfo?): Boolean {
                 if (node == null) return false
                 if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
-                val parent = node.parent
-                return parent?.isClickable == true && parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                var parent = node.parent
+                repeat(4) {
+                    if (parent == null) return false
+                    if (parent!!.isClickable && parent!!.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+                    parent = parent!!.parent
+                }
+                return false
             }
             fun type(node: AccessibilityNodeInfo?, value: String): Boolean {
                 if (node == null || !node.isEditable || !node.isVisibleToUser || node.isPassword) return false
