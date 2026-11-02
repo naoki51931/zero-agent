@@ -53,6 +53,7 @@ class CharacterDraftActivity : Activity() {
         body.removeAllViews()
         body.addView(label("SeaArt画像生成・投稿準備", 22f))
         body.addView(label("Xで抽出した未検証のいいね数からAIがオリジナルのアニメキャラ案を選びます。いいね数の予測は保証されません。"))
+        body.addView(label("SeaArt操作状態: " + LocalSettings(this).get("seaartPendingState", "未開始") + "。生成後の画像保存は、現在は手動取り込みで確認してください。"))
         body.addView(button("AIにキャラを選ばせて生成案を作成（OpenRouter料金あり）") {
             val settings = LocalSettings(this)
             if (settings.get("apiKey").isBlank() || settings.get("model").isBlank()) {
