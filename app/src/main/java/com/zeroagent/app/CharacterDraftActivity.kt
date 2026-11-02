@@ -14,6 +14,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import android.widget.EditText
+import android.text.InputType
 import android.provider.DocumentsContract
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -126,12 +127,18 @@ class CharacterDraftActivity : Activity() {
                 store.updateGenerationSettings(id, modelInput.text.toString(), loraInput.text.toString())
                 notify("モデル・LoRA設定を保存しました")
             })
-            body.addView(button("SeaArt創作・モデル・LoRA・生成を全自動で開始") {
+            val repeatInput = EditText(this).apply { hint = "生成回数（1〜20）"; inputType = InputType.TYPE_CLASS_NUMBER; setText("1") }
+            body.addView(repeatInput)
+            body.addView(button("SeaArt指定回数生成を開始") {
+                val count = repeatInput.text.toString().toIntOrNull()
+                if (count == null || count !in 1..20) { notify("1〜20回を指定してください"); return@button }
                 val settings = LocalSettings(this)
                 settings.put("seaartPendingId", id)
                 settings.put("seaartPendingPrompt", row.optString("prompt"))
                 settings.put("seaartPendingModel", modelInput.text.toString().ifBlank { "GR-Illustrious 3in1" })
                 settings.put("seaartPendingLora", loraInput.text.toString())
+                settings.put("seaartRepeatTotal", count.toString())
+                settings.put("seaartRepeatCompleted", "0")
                 settings.put("seaartPendingState", "awaiting_create")
                 settings.put("seaartPendingSince", System.currentTimeMillis().toString())
                 notify("SeaArtで創作→モデル→LoRA→生成を自動操作します。ログイン済みであることを確認してください")
