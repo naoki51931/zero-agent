@@ -395,15 +395,54 @@ class SeaArtAndroidFlow(private val service: AccessibilityService) {
                     }
                 }
                 "awaiting_generate" -> {
-                    val generate = find("^(生成|生成する|Generate|今すぐ生成|Start generating)$")
-                        ?: nodes.firstOrNull {
-                            it.isVisibleToUser && Regex("(?is).*x\\s*1\\s*.*(⚡|\\d+[.]\\d+).*").matches(label(it)) &&
-                                (it.isClickable || it.parent?.isClickable == true)
-                        }
-                    if (generate != null) {
+                    // The purple SeaArt generate control is often rendered as
+                    // "x 1 ⚡ 32.4" rather than a button named "生成".
+                    // Restrict matching to the lower composer, not result cards.
+                    val width = service.resources.displayMetrics.widthPixels
+                    fun generateBounds(node: AccessibilityNodeInfo): Rect {
+                        val rect = Rect()
+                        node.getBoundsInScreen(rect)
+                        return rect
+                    }
+                    val candidates = nodes.filter { node ->
+                        if (!node.isVisibleToUser || node.isEditable) return@filter false
+                        val rect = generateBounds(node)
+                        if (rect.isEmpty || rect.centerY() < screenHeight * 0.60f ||
+                            rect.centerX() < width * 0.50f) return@filter false
+                        val value = label(node).replace("×", "x").replace("Ｘ", "x")
+                        Regex("(?i).*(生成する|今すぐ生成|generate|start generating).*").matches(value) ||
+                            Regex("(?is).*x\\s*[1-4]\\b.*(⚡|\\d+[.]\\d+|クレジット).*").matches(value) ||
+                            Regex("(?is).*(⚡|\\d+[.]\\d+).*x\\s*[1-4]\\b.*").matches(value)
+                    }
+                    val generate = candidates.minByOrNull { node ->
+                        val rect = generateBounds(node)
+                        // Prefer the small right-hand control over large
+                        // containers that include unrelated page content.
+                        rect.width() * rect.height()
+                    }
+                    if (generate == null) {
+                        trace("purple generate button not found candidates=0; waiting")
+                        return
+                    }
+                    val rect = generateBounds(generate)
+                    trace("purple generate candidate label=${label(generate).take(90)} bounds=${rect.flattenToString()} clickable=${generate.isClickable}")
+                    val clicked = click(generate)
+                    if (clicked) {
+                        trace("purple generate ACTION_CLICK accepted; awaiting generation")
                         settings.put("seaartPendingSince", System.currentTimeMillis().toString())
-                        if (click(generate)) {
-                            trace("generation button clicked")
+                        next("awaiting_download")
+                    } else {
+                        // Chromium sometimes exposes a text-only child without
+                        // clickable ancestors. Tap the actual measured bounds,
+                        // never a hard-coded screen coordinate.
+                        val path = Path().apply { moveTo(rect.centerX().toFloat(), rect.centerY().toFloat()) }
+                        val gesture = GestureDescription.Builder()
+                            .addStroke(GestureDescription.StrokeDescription(path, 0, 100))
+                            .build()
+                        val dispatched = service.dispatchGesture(gesture, null, null)
+                        trace("purple generate gesture dispatched=$dispatched")
+                        if (dispatched) {
+                            settings.put("seaartPendingSince", System.currentTimeMillis().toString())
                             next("awaiting_download")
                         } else next("generation_click_failed")
                     }
