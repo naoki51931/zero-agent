@@ -51,6 +51,7 @@ class ChromeAssistService : AccessibilityService() {
     private var browserTransitionToken = 0
     private var seaartFlowBusy = false
     private var seaartImportPolling = false
+    private var seaartNavigationPolling = false
     private var browserConsentShown = false
     private var demonstrating = false
     private var demoSteps = JSONArray()
@@ -764,6 +765,23 @@ class ChromeAssistService : AccessibilityService() {
                 minimizeForResearch?.invoke()
                 panel?.visibility = android.view.View.VISIBLE
                 consentPanel?.visibility = android.view.View.GONE
+            }
+            if (pending in setOf("awaiting_create", "awaiting_create_navigation") && !seaartNavigationPolling) {
+                seaartNavigationPolling = true
+                scope.launch {
+                    try {
+                        repeat(18) {
+                            delay(1500)
+                            val current = LocalSettings(this@ChromeAssistService).get("seaartPendingState")
+                            if (current !in setOf("awaiting_create", "awaiting_create_navigation")) return@launch
+                            if (!seaartFlowBusy) {
+                                seaartFlowBusy = true
+                                try { SeaArtAndroidFlow(this@ChromeAssistService).advance() }
+                                finally { seaartFlowBusy = false }
+                            }
+                        }
+                    } finally { seaartNavigationPolling = false }
+                }
             }
             if (pending == "download_requested" && !seaartImportPolling) {
                 seaartImportPolling = true
