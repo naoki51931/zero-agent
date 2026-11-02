@@ -49,6 +49,8 @@ class ChromeAssistService : AccessibilityService() {
     private var pending = false
     private var chromeActive = false
     private var browserTransitionToken = 0
+    private var seaartFlowBusy = false
+    private var seaartImportPolling = false
     private var browserConsentShown = false
     private var demonstrating = false
     private var demoSteps = JSONArray()
